@@ -134,6 +134,11 @@ mod tests {
             true
         );
         assert_eq!(results[0].get_bool_value("data"), false);
+        assert_eq!(results[0].get_f32_value(""), 0.0);
+        assert_eq!(results[0].get_f64_value(""), 0.0);
+        assert_eq!(results[0].get_i32_value(""), 0);
+        assert_eq!(results[0].get_i64_value(""), 0);
+        assert_eq!(store.data, store.clone().data);
 
         let parameterized_results = store
             .execute_parameterized_query(
