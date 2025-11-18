@@ -128,12 +128,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].get_str_value("data"), "row1");
-        assert_eq!(
-            results[0].get_datetime_value("data").timestamp() <= chrono::Utc::now().timestamp(),
-            true
-        );
-        assert_eq!(results[0].get_bool_value("data"), false);
+        assert_eq!(results[0].get_str_value(""), "row1");
+        assert!(results[0].get_datetime_value("").timestamp() <= chrono::Utc::now().timestamp());
+        assert_eq!(results[0].get_bool_value(""), false);
         assert_eq!(results[0].get_f32_value(""), 0.0);
         assert_eq!(results[0].get_f64_value(""), 0.0);
         assert_eq!(results[0].get_i32_value(""), 0);
