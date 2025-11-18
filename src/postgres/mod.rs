@@ -98,7 +98,7 @@ impl DataRow for PostgresDataRow {
     }
 }
 
-/// Encapsulates the execution of queries against a Postgres database;
+/// Encapsulates the execution of queries against a Postgres database.
 /// Returns results as PostgresDataRow instances.
 #[async_trait]
 impl DataStore<PostgresDataRow> for PostgresDataStore {
