@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use std::{error::Error, fmt::Display};
 
 pub mod postgres;
@@ -16,14 +17,43 @@ impl Display for DataStoreError {
 impl Error for DataStoreError {}
 
 /// Abstraction representing a single row retrieved from a data store
+///
+/// To interact with the data represented by this row, the following methods are exposed:
+///   - `get_bool_value(&self, column_name: &str)` -> `Result<bool, DataStoreError>`
+///   - `get_datetime_value(&self, column_name: &str)` -> `Result<chrono::DateTime<chrono::Utc, DataStoreError>`
+///   - `get_f32_value(&self, column_name: &str)` -> `Result<f32, DataStoreError>`
+///   - `get_f64_value(&self, column_name: &str)` -> `Result<f64, DataStoreError>`
+///   - `get_i32_value(&self, column_name: &str)` -> `Result<i32, DataStoreError>`
+///   - `get_i64_value(&self, column_name: &str)` -> `Result<i64, DataStoreError>`
+///   - `get_str_value(&self, column_name: &str)` -> `Result<String, DataStoreError>`
 pub trait DataRow: Send + Sync {
-    fn get_bool_value(&self, column_name: &str) -> bool;
-    fn get_datetime_value(&self, column_name: &str) -> chrono::DateTime<chrono::Utc>;
-    fn get_f32_value(&self, column_name: &str) -> f32;
-    fn get_f64_value(&self, column_name: &str) -> f64;
-    fn get_i32_value(&self, column_name: &str) -> i32;
-    fn get_i64_value(&self, column_name: &str) -> i64;
-    fn get_str_value(&self, column_name: &str) -> String;
+    /// Attempts to return the value of the specified column as a `bool`.
+    /// Returns an error if the data is not of the correct type.
+    fn get_bool_value(&self, column_name: &str) -> Result<bool, DataStoreError>;
+
+    /// Attempts to return the value of the specified column as a `chrono::DateTime<chrono::Utc>`.
+    /// Returns an error if the data is not of the correct type.
+    fn get_datetime_value(&self, column_name: &str) -> Result<DateTime<Utc>, DataStoreError>;
+
+    /// Attempts to return the value of the specified column as a `f32`.
+    /// Returns an error if the data is not of the correct type.
+    fn get_f32_value(&self, column_name: &str) -> Result<f32, DataStoreError>;
+
+    /// Attempts to return the value of the specified column as a `f64`.
+    /// Returns an error if the data is not of the correct type.
+    fn get_f64_value(&self, column_name: &str) -> Result<f64, DataStoreError>;
+
+    /// Attempts to return the value of the specified column as a `i32`.
+    /// Returns an error if the data is not of the correct type.
+    fn get_i32_value(&self, column_name: &str) -> Result<i32, DataStoreError>;
+
+    /// Attempts to return the value of the specified column as a `i64`.
+    /// Returns an error if the data is not of the correct type.
+    fn get_i64_value(&self, column_name: &str) -> Result<i64, DataStoreError>;
+
+    /// Attempts to return the value of the specified column as a `String`.
+    /// Returns an error if the data is not of the correct type.
+    fn get_str_value(&self, column_name: &str) -> Result<String, DataStoreError>;
 }
 
 /// Abstraction for a data store capable of executing queries
@@ -53,26 +83,26 @@ mod tests {
         data: String,
     }
     impl DataRow for DummyRow {
-        fn get_bool_value(&self, _: &str) -> bool {
-            false
+        fn get_bool_value(&self, _: &str) -> Result<bool, DataStoreError> {
+            Ok(false)
         }
-        fn get_datetime_value(&self, _: &str) -> chrono::DateTime<chrono::Utc> {
-            chrono::Utc::now()
+        fn get_datetime_value(&self, _: &str) -> Result<DateTime<Utc>, DataStoreError> {
+            Ok(chrono::Utc::now())
         }
-        fn get_f32_value(&self, _: &str) -> f32 {
-            0.0
+        fn get_f32_value(&self, _: &str) -> Result<f32, DataStoreError> {
+            Ok(0.0)
         }
-        fn get_f64_value(&self, _: &str) -> f64 {
-            0.0
+        fn get_f64_value(&self, _: &str) -> Result<f64, DataStoreError> {
+            Ok(0.0)
         }
-        fn get_i32_value(&self, _: &str) -> i32 {
-            0
+        fn get_i32_value(&self, _: &str) -> Result<i32, DataStoreError> {
+            Ok(0)
         }
-        fn get_i64_value(&self, _: &str) -> i64 {
-            0
+        fn get_i64_value(&self, _: &str) -> Result<i64, DataStoreError> {
+            Ok(0)
         }
-        fn get_str_value(&self, _: &str) -> String {
-            self.data.clone()
+        fn get_str_value(&self, _: &str) -> Result<String, DataStoreError> {
+            Ok(self.data.clone())
         }
     }
     impl Clone for DummyRow {
@@ -128,13 +158,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].get_str_value(""), "row1");
-        assert!(results[0].get_datetime_value("").timestamp() <= chrono::Utc::now().timestamp());
-        assert_eq!(results[0].get_bool_value(""), false);
-        assert_eq!(results[0].get_f32_value(""), 0.0);
-        assert_eq!(results[0].get_f64_value(""), 0.0);
-        assert_eq!(results[0].get_i32_value(""), 0);
-        assert_eq!(results[0].get_i64_value(""), 0);
+        assert_eq!(results[0].get_str_value("").unwrap(), "row1");
+        assert!(
+            results[0].get_datetime_value("").unwrap().timestamp()
+                <= chrono::Utc::now().timestamp()
+        );
+        assert_eq!(results[0].get_bool_value("").unwrap(), false);
+        assert_eq!(results[0].get_f32_value("").unwrap(), 0.0);
+        assert_eq!(results[0].get_f64_value("").unwrap(), 0.0);
+        assert_eq!(results[0].get_i32_value("").unwrap(), 0);
+        assert_eq!(results[0].get_i64_value("").unwrap(), 0);
         assert_eq!(store.data, store.clone().data);
 
         let parameterized_results = store

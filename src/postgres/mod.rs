@@ -1,11 +1,23 @@
 use super::{DataRow, DataStore, DataStoreError};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use sqlx::{
-    Row,
+    Error, Row,
     postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow},
 };
 use std::{env, time::Duration};
 use tracing::error;
+
+const FAILED_CONVERSION_MSG: &str =
+    "Failed to convert the results to the desired type. See error log for details";
+impl From<Error> for DataStoreError {
+    fn from(err: Error) -> Self {
+        error!("{:?}", err);
+        Self {
+            details: String::from(FAILED_CONVERSION_MSG),
+        }
+    }
+}
 
 /// Postgres implementation of the DataStore trait
 pub struct PostgresDataStore {
@@ -63,26 +75,26 @@ impl From<PgRow> for PostgresDataRow {
     }
 }
 impl DataRow for PostgresDataRow {
-    fn get_bool_value(&self, column_name: &str) -> bool {
-        self.row.get(column_name)
+    fn get_bool_value(&self, column_name: &str) -> Result<bool, DataStoreError> {
+        Ok(self.row.try_get(column_name)?)
     }
-    fn get_datetime_value(&self, column_name: &str) -> chrono::DateTime<chrono::Utc> {
-        self.row.get(column_name)
+    fn get_datetime_value(&self, column_name: &str) -> Result<DateTime<Utc>, DataStoreError> {
+        Ok(self.row.try_get(column_name)?)
     }
-    fn get_f32_value(&self, column_name: &str) -> f32 {
-        self.row.get(column_name)
+    fn get_f32_value(&self, column_name: &str) -> Result<f32, DataStoreError> {
+        Ok(self.row.try_get(column_name)?)
     }
-    fn get_f64_value(&self, column_name: &str) -> f64 {
-        self.row.get(column_name)
+    fn get_f64_value(&self, column_name: &str) -> Result<f64, DataStoreError> {
+        Ok(self.row.try_get(column_name)?)
     }
-    fn get_i32_value(&self, column_name: &str) -> i32 {
-        self.row.get(column_name)
+    fn get_i32_value(&self, column_name: &str) -> Result<i32, DataStoreError> {
+        Ok(self.row.try_get(column_name)?)
     }
-    fn get_i64_value(&self, column_name: &str) -> i64 {
-        self.row.get(column_name)
+    fn get_i64_value(&self, column_name: &str) -> Result<i64, DataStoreError> {
+        Ok(self.row.try_get(column_name)?)
     }
-    fn get_str_value(&self, column_name: &str) -> String {
-        self.row.get(column_name)
+    fn get_str_value(&self, column_name: &str) -> Result<String, DataStoreError> {
+        Ok(self.row.try_get(column_name)?)
     }
 }
 
