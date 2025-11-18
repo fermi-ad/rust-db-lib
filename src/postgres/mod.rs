@@ -95,7 +95,7 @@ impl DataStore<PostgresDataRow> for PostgresDataStore {
         match query_result {
             Ok(rows) => Ok(rows.into_iter().map(PostgresDataRow::from).collect()),
             Err(e) => {
-                error!("Alarm list retrieval query failed: {}", e);
+                error!("Query failed: {}", e);
                 Err(DataStoreError {
                     details: "Query execution failed. See system logs for details.".to_string(),
                 })
@@ -115,7 +115,7 @@ impl DataStore<PostgresDataRow> for PostgresDataStore {
         match query_result {
             Ok(rows) => Ok(rows.into_iter().map(PostgresDataRow::from).collect()),
             Err(e) => {
-                error!("Alarm list retrieval query failed: {}", e);
+                error!("Query failed: {}", e);
                 Err(DataStoreError {
                     details: "Query execution failed. See system logs for details.".to_string(),
                 })
