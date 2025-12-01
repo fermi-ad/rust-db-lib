@@ -1,4 +1,4 @@
-# fermi-rust-db-lib
+# rust-db-lib
 This is a library for connecting to a database from within a Rust app. It encapsulates the specifics of the DB connection logic, exposing DB access through a consistent interface. The intention is that all Rust apps import this library as a dependency when they need access to the DB, so necessary changes to how our services interact with the DB can be managed from one place.
 
 ## Interface 
