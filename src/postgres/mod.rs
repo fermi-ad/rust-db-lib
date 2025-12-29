@@ -1,9 +1,8 @@
-use super::{DataRow, DataStore, DataStoreError};
+use super::{DataRow, DataStore, DataStoreError, DataVal};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use sqlx::{
-    Error, Row,
-    postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow},
+    Decode, Error, Postgres, Row,
+    postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgValueRef},
 };
 use std::{env, time::Duration};
 use tracing::error;
@@ -19,7 +18,7 @@ impl From<Error> for DataStoreError {
     }
 }
 
-/// Postgres implementation of the DataStore trait
+/// Postgres implementation of the [`DataStore`] trait
 pub struct PostgresDataStore {
     db_pool: PgPool,
 }
@@ -63,8 +62,89 @@ impl Clone for PostgresDataStore {
     }
 }
 
+/// Postgres implementation of the [`DataVal`] trait.
+struct PostgresDataVal<'a> {
+    column_data: Result<PgValueRef<'a>, DataStoreError>,
+}
+impl<'a> PostgresDataVal<'a> {
+    fn decode<T: Decode<'a, Postgres>>(value: PgValueRef<'a>) -> Result<T, DataStoreError> {
+        T::decode(value).map_err(|err| {
+            error!("{}", err);
+            DataStoreError {
+                details: String::from(
+                    "Could not decode database column. See system logs for more details.",
+                ),
+            }
+        })
+    }
+}
+impl<'a> DataVal for PostgresDataVal<'a> {
+    fn to_bool(self) -> Result<bool, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_i8(self) -> Result<i8, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_i16(self) -> Result<i16, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_i32(self) -> Result<i32, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_i64(self) -> Result<i64, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_f32(self) -> Result<f32, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_f64(self) -> Result<f64, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_string(self) -> Result<String, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_datetime(self) -> Result<chrono::DateTime<chrono::Utc>, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value),
+            Err(err) => Err(err),
+        }
+    }
+}
+
 /// Represents a single row retrieved from a Postgres database
-/// implementing the DataRow trait. In this case, it wraps sqlx::PgRow
+/// implementing the [`DataRow`] trait. In this case, it wraps [`sqlx::postgres::PgRow`]
 /// to provide the necessary methods.
 pub struct PostgresDataRow {
     row: PgRow,
@@ -74,34 +154,27 @@ impl From<PgRow> for PostgresDataRow {
         Self { row }
     }
 }
-impl DataRow for PostgresDataRow {
-    fn get_bool_value(&self, column_name: &str) -> Result<bool, DataStoreError> {
-        Ok(self.row.try_get(column_name)?)
-    }
-    fn get_datetime_value(&self, column_name: &str) -> Result<DateTime<Utc>, DataStoreError> {
-        Ok(self.row.try_get(column_name)?)
-    }
-    fn get_f32_value(&self, column_name: &str) -> Result<f32, DataStoreError> {
-        Ok(self.row.try_get(column_name)?)
-    }
-    fn get_f64_value(&self, column_name: &str) -> Result<f64, DataStoreError> {
-        Ok(self.row.try_get(column_name)?)
-    }
-    fn get_i32_value(&self, column_name: &str) -> Result<i32, DataStoreError> {
-        Ok(self.row.try_get(column_name)?)
-    }
-    fn get_i64_value(&self, column_name: &str) -> Result<i64, DataStoreError> {
-        Ok(self.row.try_get(column_name)?)
-    }
-    fn get_str_value(&self, column_name: &str) -> Result<String, DataStoreError> {
-        Ok(self.row.try_get(column_name)?)
+impl<'a> DataRow<'a, PostgresDataVal<'a>> for PostgresDataRow {
+    fn get(&'a self, column_name: &str) -> PostgresDataVal<'a> {
+        let column_data = match self.row.try_get_raw(column_name) {
+            Ok(val) => Ok(val),
+            Err(err) => {
+                error!("{}", err);
+                Err(DataStoreError {
+                    details: String::from(
+                        "Error reading column from database. See system logs for details.",
+                    ),
+                })
+            }
+        };
+        PostgresDataVal { column_data }
     }
 }
 
 /// Encapsulates the execution of queries against a Postgres database.
-/// Returns results as PostgresDataRow instances.
+/// Returns results as [`PostgresDataRow`] instances.
 #[async_trait]
-impl DataStore<PostgresDataRow> for PostgresDataStore {
+impl<'a> DataStore<'a, PostgresDataVal<'a>, PostgresDataRow> for PostgresDataStore {
     async fn execute_query(&self, query: String) -> Result<Vec<PostgresDataRow>, DataStoreError> {
         let query_result = sqlx::query(query.as_str()).fetch_all(&self.db_pool).await;
         match query_result {
