@@ -1,6 +1,4 @@
-use crate::DBVal;
-
-use super::{DataRow, DataStore, DataStoreError};
+use super::{DataRow, DataStore, DataStoreError, DataVal};
 use async_trait::async_trait;
 use sqlx::{
     Decode, Error, Postgres, Row,
@@ -64,10 +62,11 @@ impl Clone for PostgresDataStore {
     }
 }
 
-struct PostgresDBVal<'a> {
+/// Postgres implementation of the [`DataVal`] trait.
+struct PostgresDataVal<'a> {
     column_data: Result<PgValueRef<'a>, DataStoreError>,
 }
-impl<'a> PostgresDBVal<'a> {
+impl<'a> PostgresDataVal<'a> {
     fn decode<T: Decode<'a, Postgres>>(value: PgValueRef<'a>) -> Result<T, DataStoreError> {
         T::decode(value).map_err(|err| {
             error!("{}", err);
@@ -79,7 +78,7 @@ impl<'a> PostgresDBVal<'a> {
         })
     }
 }
-impl<'a> DBVal for PostgresDBVal<'a> {
+impl<'a> DataVal for PostgresDataVal<'a> {
     fn to_bool(self) -> Result<bool, DataStoreError> {
         match self.column_data {
             Ok(value) => Self::decode(value),
@@ -155,8 +154,8 @@ impl From<PgRow> for PostgresDataRow {
         Self { row }
     }
 }
-impl<'a> DataRow<'a, PostgresDBVal<'a>> for PostgresDataRow {
-    fn get(&'a self, column_name: &str) -> PostgresDBVal<'a> {
+impl<'a> DataRow<'a, PostgresDataVal<'a>> for PostgresDataRow {
+    fn get(&'a self, column_name: &str) -> PostgresDataVal<'a> {
         let column_data = match self.row.try_get_raw(column_name) {
             Ok(val) => Ok(val),
             Err(err) => {
@@ -168,14 +167,14 @@ impl<'a> DataRow<'a, PostgresDBVal<'a>> for PostgresDataRow {
                 })
             }
         };
-        PostgresDBVal { column_data }
+        PostgresDataVal { column_data }
     }
 }
 
 /// Encapsulates the execution of queries against a Postgres database.
 /// Returns results as [`PostgresDataRow`] instances.
 #[async_trait]
-impl<'a> DataStore<'a, PostgresDBVal<'a>, PostgresDataRow> for PostgresDataStore {
+impl<'a> DataStore<'a, PostgresDataVal<'a>, PostgresDataRow> for PostgresDataStore {
     async fn execute_query(&self, query: String) -> Result<Vec<PostgresDataRow>, DataStoreError> {
         let query_result = sqlx::query(query.as_str()).fetch_all(&self.db_pool).await;
         match query_result {

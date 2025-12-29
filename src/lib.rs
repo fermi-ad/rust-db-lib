@@ -20,7 +20,7 @@ impl Error for DataStoreError {}
 /// the exact type of the data is unknown. Calling one of the trait methods will attempt to decode
 /// the value as the desired type. An error will be returned if the column does not exist or the
 /// data cannot be decoded as the requested type.
-pub trait DBVal {
+pub trait DataVal {
     /// Attempts to decode the value as a [`bool`].
     fn to_bool(self) -> Result<bool, DataStoreError>;
 
@@ -50,14 +50,14 @@ pub trait DBVal {
 }
 
 /// Abstraction representing a single row retrieved from a data store
-pub trait DataRow<'a, T: DBVal>: Send + Sync {
-    /// Generates an instance of [`DBVal`] wrapping the contents of the specified column
+pub trait DataRow<'a, T: DataVal>: Send + Sync {
+    /// Generates an instance of [`DataVal`] wrapping the contents of the specified column
     fn get(&'a self, column_name: &str) -> T;
 }
 
 /// Abstraction for a data store capable of executing queries
 #[async_trait]
-pub trait DataStore<'a, T: DBVal, U: DataRow<'a, T>>: Clone + Send + Sync {
+pub trait DataStore<'a, T: DataVal, U: DataRow<'a, T>>: Clone + Send + Sync {
     /// Executes a basic SQL statement. If any user input is required, use [`execute_parameterized_query`](Self::execute_parameterized_query)
     async fn execute_query(&self, query: String) -> Result<Vec<U>, DataStoreError>;
 
@@ -78,7 +78,7 @@ mod tests {
     use super::*;
 
     struct DummyVal;
-    impl DBVal for DummyVal {
+    impl DataVal for DummyVal {
         fn to_bool(self) -> Result<bool, DataStoreError> {
             Ok(true)
         }
