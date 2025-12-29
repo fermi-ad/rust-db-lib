@@ -4,7 +4,7 @@ use std::{error::Error, fmt::Display};
 
 pub mod postgres;
 
-/// Custom error type for DataStore operations
+/// Custom error type for [`DataStore`] operations
 #[derive(Debug)]
 pub struct DataStoreError {
     details: String,
@@ -16,93 +16,113 @@ impl Display for DataStoreError {
 }
 impl Error for DataStoreError {}
 
+/// Represents the value stored in a database column. In this intermediate state,
+/// the exact type of the data is unknown. Calling one of the trait methods will attempt to decode
+/// the value as the desired type. An error will be returned if the column does not exist or the
+/// data cannot be decoded as the requested type.
+pub trait DBVal {
+    /// Attempts to decode the value as a [`bool`].
+    fn to_bool(self) -> Result<bool, DataStoreError>;
+
+    /// Attempts to decode the value as a [`i8`].
+    fn to_i8(self) -> Result<i8, DataStoreError>;
+
+    /// Attempts to decode the value as a [`i16`].
+    fn to_i16(self) -> Result<i16, DataStoreError>;
+
+    /// Attempts to decode the value as a [`i32`].
+    fn to_i32(self) -> Result<i32, DataStoreError>;
+
+    /// Attempts to decode the value as a [`i64`].
+    fn to_i64(self) -> Result<i64, DataStoreError>;
+
+    /// Attempts to decode the value as a [`f32`].
+    fn to_f32(self) -> Result<f32, DataStoreError>;
+
+    /// Attempts to decode the value as a [`f64`].
+    fn to_f64(self) -> Result<f64, DataStoreError>;
+
+    /// Attempts to decode the value as a [`String`].
+    fn to_string(self) -> Result<String, DataStoreError>;
+
+    /// Attempts to decode the value as a [`DateTime<Utc>`].
+    fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError>;
+}
+
 /// Abstraction representing a single row retrieved from a data store
-///
-/// To interact with the data represented by this row, the following methods are exposed:
-///   - `get_bool_value(&self, column_name: &str)` -> `Result<bool, DataStoreError>`
-///   - `get_datetime_value(&self, column_name: &str)` -> `Result<chrono::DateTime<chrono::Utc, DataStoreError>`
-///   - `get_f32_value(&self, column_name: &str)` -> `Result<f32, DataStoreError>`
-///   - `get_f64_value(&self, column_name: &str)` -> `Result<f64, DataStoreError>`
-///   - `get_i32_value(&self, column_name: &str)` -> `Result<i32, DataStoreError>`
-///   - `get_i64_value(&self, column_name: &str)` -> `Result<i64, DataStoreError>`
-///   - `get_str_value(&self, column_name: &str)` -> `Result<String, DataStoreError>`
-pub trait DataRow: Send + Sync {
-    /// Attempts to return the value of the specified column as a `bool`.
-    /// Returns an error if the data is not of the correct type.
-    fn get_bool_value(&self, column_name: &str) -> Result<bool, DataStoreError>;
-
-    /// Attempts to return the value of the specified column as a `chrono::DateTime<chrono::Utc>`.
-    /// Returns an error if the data is not of the correct type.
-    fn get_datetime_value(&self, column_name: &str) -> Result<DateTime<Utc>, DataStoreError>;
-
-    /// Attempts to return the value of the specified column as a `f32`.
-    /// Returns an error if the data is not of the correct type.
-    fn get_f32_value(&self, column_name: &str) -> Result<f32, DataStoreError>;
-
-    /// Attempts to return the value of the specified column as a `f64`.
-    /// Returns an error if the data is not of the correct type.
-    fn get_f64_value(&self, column_name: &str) -> Result<f64, DataStoreError>;
-
-    /// Attempts to return the value of the specified column as a `i32`.
-    /// Returns an error if the data is not of the correct type.
-    fn get_i32_value(&self, column_name: &str) -> Result<i32, DataStoreError>;
-
-    /// Attempts to return the value of the specified column as a `i64`.
-    /// Returns an error if the data is not of the correct type.
-    fn get_i64_value(&self, column_name: &str) -> Result<i64, DataStoreError>;
-
-    /// Attempts to return the value of the specified column as a `String`.
-    /// Returns an error if the data is not of the correct type.
-    fn get_str_value(&self, column_name: &str) -> Result<String, DataStoreError>;
+pub trait DataRow<'a, T: DBVal>: Send + Sync {
+    /// Generates an instance of [`DBVal`] wrapping the contents of the specified column
+    fn get(&'a self, column_name: &str) -> T;
 }
 
 /// Abstraction for a data store capable of executing queries
 #[async_trait]
-pub trait DataStore<T: DataRow>: Clone + Send + Sync {
-    /// Executes a basic SQL statement. If any user input is required, use [`execute_parameterized_query()`]
-    async fn execute_query(&self, query: String) -> Result<Vec<T>, DataStoreError>;
+pub trait DataStore<'a, T: DBVal, U: DataRow<'a, T>>: Clone + Send + Sync {
+    /// Executes a basic SQL statement. If any user input is required, use [`execute_parameterized_query`](Self::execute_parameterized_query)
+    async fn execute_query(&self, query: String) -> Result<Vec<U>, DataStoreError>;
 
     /// Executes a parameterized query. It is expected that the query string will have sequential placeholders
     /// for the paramterized data.
     ///
-    /// Example: If passing 5 elements into the query. the query should contain $1, $2, $3, $4, and $5, and
+    /// Example: If passing 5 elements into the query. the query should contain `$1`, `$2`, `$3`, `$4`, and `$5`, and
     /// the bindings should have no fewer than 5 elements (any additional elements beyond 5 will be ignored).
     async fn execute_parameterized_query(
         &self,
         query: String,
         bindings: Vec<String>,
-    ) -> Result<Vec<T>, DataStoreError>;
+    ) -> Result<Vec<U>, DataStoreError>;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    struct DummyVal;
+    impl DBVal for DummyVal {
+        fn to_bool(self) -> Result<bool, DataStoreError> {
+            Ok(true)
+        }
+
+        fn to_i8(self) -> Result<i8, DataStoreError> {
+            Ok(0_i8)
+        }
+
+        fn to_i16(self) -> Result<i16, DataStoreError> {
+            Ok(0_i16)
+        }
+
+        fn to_i32(self) -> Result<i32, DataStoreError> {
+            Ok(0_i32)
+        }
+
+        fn to_i64(self) -> Result<i64, DataStoreError> {
+            Ok(0_i64)
+        }
+
+        fn to_f32(self) -> Result<f32, DataStoreError> {
+            Ok(0_f32)
+        }
+
+        fn to_f64(self) -> Result<f64, DataStoreError> {
+            Ok(0_f64)
+        }
+
+        fn to_string(self) -> Result<String, DataStoreError> {
+            Ok(String::default())
+        }
+
+        fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError> {
+            Ok(Utc::now())
+        }
+    }
+
     #[derive(Debug)]
     struct DummyRow {
         data: String,
     }
-    impl DataRow for DummyRow {
-        fn get_bool_value(&self, _: &str) -> Result<bool, DataStoreError> {
-            Ok(false)
-        }
-        fn get_datetime_value(&self, _: &str) -> Result<DateTime<Utc>, DataStoreError> {
-            Ok(chrono::Utc::now())
-        }
-        fn get_f32_value(&self, _: &str) -> Result<f32, DataStoreError> {
-            Ok(0.0)
-        }
-        fn get_f64_value(&self, _: &str) -> Result<f64, DataStoreError> {
-            Ok(0.0)
-        }
-        fn get_i32_value(&self, _: &str) -> Result<i32, DataStoreError> {
-            Ok(0)
-        }
-        fn get_i64_value(&self, _: &str) -> Result<i64, DataStoreError> {
-            Ok(0)
-        }
-        fn get_str_value(&self, _: &str) -> Result<String, DataStoreError> {
-            Ok(self.data.clone())
+    impl<'a> DataRow<'a, DummyVal> for DummyRow {
+        fn get(&'a self, _: &str) -> DummyVal {
+            DummyVal {}
         }
     }
     impl Clone for DummyRow {
@@ -122,7 +142,7 @@ mod tests {
         data: Vec<DummyRow>,
     }
     #[async_trait]
-    impl DataStore<DummyRow> for DummyDataStore {
+    impl<'a> DataStore<'a, DummyVal, DummyRow> for DummyDataStore {
         async fn execute_query(&self, _: String) -> Result<Vec<DummyRow>, DataStoreError> {
             Ok(self.data.clone())
         }
@@ -158,16 +178,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].get_str_value("").unwrap(), "row1");
-        assert!(
-            results[0].get_datetime_value("").unwrap().timestamp()
-                <= chrono::Utc::now().timestamp()
-        );
-        assert_eq!(results[0].get_bool_value("").unwrap(), false);
-        assert_eq!(results[0].get_f32_value("").unwrap(), 0.0);
-        assert_eq!(results[0].get_f64_value("").unwrap(), 0.0);
-        assert_eq!(results[0].get_i32_value("").unwrap(), 0);
-        assert_eq!(results[0].get_i64_value("").unwrap(), 0);
+        let expected = results[0].get("").to_i32();
+        assert!(expected.is_ok());
         assert_eq!(store.data, store.clone().data);
 
         let parameterized_results = store
