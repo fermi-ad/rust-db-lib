@@ -20,7 +20,7 @@ impl Error for DataStoreError {}
 /// the exact type of the data is unknown. Calling one of the trait methods will attempt to decode
 /// the value as the desired type. An error will be returned if the column does not exist or the
 /// data cannot be decoded as the requested type.
-pub trait DataVal {
+pub trait DataVal: Send + Sync {
     /// Attempts to decode the value as a [`bool`].
     fn to_bool(self) -> Result<bool, DataStoreError>;
 
@@ -50,14 +50,14 @@ pub trait DataVal {
 }
 
 /// Abstraction representing a single row retrieved from a data store
-pub trait DataRow<'a, T: DataVal>: Send + Sync {
+pub trait DataRow<T: DataVal>: Send + Sync {
     /// Generates an instance of [`DataVal`] wrapping the contents of the specified column
-    fn get(&'a self, column_name: &str) -> T;
+    fn get(&self, column_name: &str) -> T;
 }
 
 /// Abstraction for a data store capable of executing queries
 #[async_trait]
-pub trait DataStore<'a, T: DataVal, U: DataRow<'a, T>>: Clone + Send + Sync {
+pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync {
     /// Executes a basic SQL statement. If any user input is required, use [`execute_parameterized_query`](Self::execute_parameterized_query)
     async fn execute_query(&self, query: String) -> Result<Vec<U>, DataStoreError>;
 
@@ -116,12 +116,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn cover_dummy_val_impl() {
+        assert!(DummyVal {}.to_bool().unwrap());
+        assert_eq!(0, DummyVal {}.to_i8().unwrap());
+        assert_eq!(0, DummyVal {}.to_i16().unwrap());
+        assert_eq!(0, DummyVal {}.to_i32().unwrap());
+        assert_eq!(0, DummyVal {}.to_i64().unwrap());
+        assert_eq!(0_f32, DummyVal {}.to_f32().unwrap());
+        assert_eq!(0_f64, DummyVal {}.to_f64().unwrap());
+        assert_eq!(String::default(), DummyVal {}.to_string().unwrap());
+        assert!(Utc::now() < DummyVal {}.to_datetime().unwrap());
+    }
+
     #[derive(Debug)]
     struct DummyRow {
         data: String,
     }
-    impl<'a> DataRow<'a, DummyVal> for DummyRow {
-        fn get(&'a self, _: &str) -> DummyVal {
+    impl DataRow<DummyVal> for DummyRow {
+        fn get(&self, _: &str) -> DummyVal {
             DummyVal {}
         }
     }
@@ -142,7 +155,7 @@ mod tests {
         data: Vec<DummyRow>,
     }
     #[async_trait]
-    impl<'a> DataStore<'a, DummyVal, DummyRow> for DummyDataStore {
+    impl DataStore<DummyVal, DummyRow> for DummyDataStore {
         async fn execute_query(&self, _: String) -> Result<Vec<DummyRow>, DataStoreError> {
             Ok(self.data.clone())
         }
