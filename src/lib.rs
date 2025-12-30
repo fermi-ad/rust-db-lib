@@ -131,6 +131,11 @@ pub mod test_utils {
             ))
         }
     }
+    impl Default for TestVal {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
     impl DataVal for TestVal {
         fn to_bool(self) -> Result<bool, DataStoreError> {
             Self::translate(self.test_bool)
