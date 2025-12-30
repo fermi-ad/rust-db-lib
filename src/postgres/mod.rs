@@ -73,7 +73,7 @@ impl Clone for PostgresDataStore {
 }
 
 /// Postgres implementation of the [`DataVal`] trait.
-struct PostgresDataVal {
+pub struct PostgresDataVal {
     column_data: Result<PgValue, DataStoreError>,
 }
 impl PostgresDataVal {
