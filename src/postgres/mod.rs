@@ -9,11 +9,21 @@ use tracing::error;
 
 const FAILED_CONVERSION_MSG: &str =
     "Failed to convert the results to the desired type. See error log for details";
+impl From<Box<dyn std::error::Error + Send + Sync>> for DataStoreError {
+    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        error!("{:?}", err);
+        Self {
+            details: String::from(FAILED_CONVERSION_MSG),
+        }
+    }
+}
+const GENERIC_ERR_MSG: &str =
+    "An error occurred while interacting with the database. See error log for details";
 impl From<Error> for DataStoreError {
     fn from(err: Error) -> Self {
         error!("{:?}", err);
         Self {
-            details: String::from(FAILED_CONVERSION_MSG),
+            details: String::from(GENERIC_ERR_MSG),
         }
     }
 }
@@ -68,14 +78,7 @@ struct PostgresDataVal {
 }
 impl PostgresDataVal {
     fn decode<'a, T: Decode<'a, Postgres>>(value: PgValueRef<'a>) -> Result<T, DataStoreError> {
-        T::decode(value).map_err(|err| {
-            error!("{}", err);
-            DataStoreError {
-                details: String::from(
-                    "Could not decode database column. See system logs for more details.",
-                ),
-            }
-        })
+        T::decode(value).map_err(DataStoreError::from)
     }
 }
 impl DataVal for PostgresDataVal {
@@ -158,14 +161,7 @@ impl DataRow<PostgresDataVal> for PostgresDataRow {
     fn get(&self, column_name: &str) -> PostgresDataVal {
         let column_data = match self.row.try_get_raw(column_name) {
             Ok(val) => Ok(ValueRef::to_owned(&val)),
-            Err(err) => {
-                error!("{}", err);
-                Err(DataStoreError {
-                    details: String::from(
-                        "Error reading column from database. See system logs for details.",
-                    ),
-                })
-            }
+            Err(err) => Err(DataStoreError::from(err)),
         };
         PostgresDataVal { column_data }
     }
