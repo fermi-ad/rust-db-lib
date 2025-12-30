@@ -116,6 +116,19 @@ mod tests {
         }
     }
 
+    #[test]
+    fn cover_dummy_val_impl() {
+        assert!(DummyVal {}.to_bool().unwrap());
+        assert_eq!(0, DummyVal {}.to_i8().unwrap());
+        assert_eq!(0, DummyVal {}.to_i16().unwrap());
+        assert_eq!(0, DummyVal {}.to_i32().unwrap());
+        assert_eq!(0, DummyVal {}.to_i64().unwrap());
+        assert_eq!(0_f32, DummyVal {}.to_f32().unwrap());
+        assert_eq!(0_f64, DummyVal {}.to_f64().unwrap());
+        assert_eq!(String::default(), DummyVal {}.to_string().unwrap());
+        assert!(Utc::now() < DummyVal {}.to_datetime().unwrap());
+    }
+
     #[derive(Debug)]
     struct DummyRow {
         data: String,
