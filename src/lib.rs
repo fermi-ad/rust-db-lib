@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::{error::Error, fmt::Display};
+use std::{
+    error::Error,
+    fmt::{self, Display, Formatter},
+};
 
 pub mod postgres;
 
@@ -10,7 +13,7 @@ pub struct DataStoreError {
     details: String,
 }
 impl Display for DataStoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "DataStoreError: {}", self.details)
     }
 }
@@ -73,69 +76,210 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync {
     ) -> Result<Vec<U>, DataStoreError>;
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// A collection of prebuilt implementations of the traits in this library that are useful for unit tests.
+pub mod test_utils {
+    use super::{DataStoreError, DataVal};
+    use chrono::{DateTime, Utc};
+    use std::{
+        error::Error,
+        fmt::{self, Display, Formatter},
+    };
 
-    struct DummyVal;
-    impl DataVal for DummyVal {
+    /// A default implementation of [`std::error::Error`] for use in test cases.
+    #[derive(Debug)]
+    pub struct TestError;
+    impl Display for TestError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(f, "TestError!")
+        }
+    }
+    impl Error for TestError {}
+
+    /// Implementation of [`DataVal`] that can be configured to return mock data.
+    /// Each field is optional, and the various implementations of the `DataVal` methods will attempt to read from the corresponding field.
+    /// If a field is populated, its value is returned. If it is not, an instance of [`TestError`] is generated and returned.
+    pub struct TestVal {
+        pub test_bool: Option<bool>,
+        pub test_i8: Option<i8>,
+        pub test_i16: Option<i16>,
+        pub test_i32: Option<i32>,
+        pub test_i64: Option<i64>,
+        pub test_f32: Option<f32>,
+        pub test_f64: Option<f64>,
+        pub test_string: Option<String>,
+        pub test_datetime: Option<DateTime<Utc>>,
+    }
+    impl TestVal {
+        /// Convenience method for generating an instance of [`TestVal`] with all fields set to [`None`].
+        pub fn new() -> Self {
+            Self {
+                test_bool: None,
+                test_datetime: None,
+                test_f32: None,
+                test_f64: None,
+                test_i16: None,
+                test_i32: None,
+                test_i64: None,
+                test_i8: None,
+                test_string: None,
+            }
+        }
+
+        fn translate<T>(op: Option<T>) -> Result<T, DataStoreError> {
+            op.ok_or(DataStoreError::from(
+                Box::new(TestError) as Box<dyn std::error::Error + Send + Sync>
+            ))
+        }
+    }
+    impl DataVal for TestVal {
         fn to_bool(self) -> Result<bool, DataStoreError> {
-            Ok(true)
+            Self::translate(self.test_bool)
         }
 
         fn to_i8(self) -> Result<i8, DataStoreError> {
-            Ok(0_i8)
+            Self::translate(self.test_i8)
         }
 
         fn to_i16(self) -> Result<i16, DataStoreError> {
-            Ok(0_i16)
+            Self::translate(self.test_i16)
         }
 
         fn to_i32(self) -> Result<i32, DataStoreError> {
-            Ok(0_i32)
+            Self::translate(self.test_i32)
         }
 
         fn to_i64(self) -> Result<i64, DataStoreError> {
-            Ok(0_i64)
+            Self::translate(self.test_i64)
         }
 
         fn to_f32(self) -> Result<f32, DataStoreError> {
-            Ok(0_f32)
+            Self::translate(self.test_f32)
         }
 
         fn to_f64(self) -> Result<f64, DataStoreError> {
-            Ok(0_f64)
+            Self::translate(self.test_f64)
         }
 
         fn to_string(self) -> Result<String, DataStoreError> {
-            Ok(String::default())
+            Self::translate(self.test_string)
         }
 
         fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError> {
-            Ok(Utc::now())
+            Self::translate(self.test_datetime)
         }
     }
 
-    #[test]
-    fn cover_dummy_val_impl() {
-        assert!(DummyVal {}.to_bool().unwrap());
-        assert_eq!(0, DummyVal {}.to_i8().unwrap());
-        assert_eq!(0, DummyVal {}.to_i16().unwrap());
-        assert_eq!(0, DummyVal {}.to_i32().unwrap());
-        assert_eq!(0, DummyVal {}.to_i64().unwrap());
-        assert_eq!(0_f32, DummyVal {}.to_f32().unwrap());
-        assert_eq!(0_f64, DummyVal {}.to_f64().unwrap());
-        assert_eq!(String::default(), DummyVal {}.to_string().unwrap());
-        assert!(Utc::now() < DummyVal {}.to_datetime().unwrap());
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_val_to_bool() {
+            let err_val = TestVal::new();
+            assert!(err_val.to_bool().is_err());
+
+            let mut val = TestVal::new();
+            val.test_bool = Some(true);
+            assert!(val.to_bool().unwrap());
+        }
+
+        #[test]
+        fn test_val_to_i8() {
+            let err_val = TestVal::new();
+            assert!(err_val.to_i8().is_err());
+
+            let mut val = TestVal::new();
+            val.test_i8 = Some(0_i8);
+            assert_eq!(0_i8, val.to_i8().unwrap());
+        }
+
+        #[test]
+        fn test_val_to_i16() {
+            let err_val = TestVal::new();
+            assert!(err_val.to_i16().is_err());
+
+            let mut val = TestVal::new();
+            val.test_i16 = Some(0_i16);
+            assert_eq!(0_i16, val.to_i16().unwrap());
+        }
+
+        #[test]
+        fn test_val_to_i32() {
+            let err_val = TestVal::new();
+            assert!(err_val.to_i32().is_err());
+
+            let mut val = TestVal::new();
+            val.test_i32 = Some(0_i32);
+            assert_eq!(0_i32, val.to_i32().unwrap());
+        }
+
+        #[test]
+        fn test_val_to_i64() {
+            let err_val = TestVal::new();
+            assert!(err_val.to_i64().is_err());
+
+            let mut val = TestVal::new();
+            val.test_i64 = Some(0_i64);
+            assert_eq!(0_i64, val.to_i64().unwrap());
+        }
+
+        #[test]
+        fn test_val_to_f32() {
+            let err_val = TestVal::new();
+            assert!(err_val.to_f32().is_err());
+
+            let mut val = TestVal::new();
+            val.test_f32 = Some(0_f32);
+            assert_eq!(0_f32, val.to_f32().unwrap());
+        }
+
+        #[test]
+        fn test_val_to_f64() {
+            let err_val = TestVal::new();
+            assert!(err_val.to_f64().is_err());
+
+            let mut val = TestVal::new();
+            val.test_f64 = Some(0_f64);
+            assert_eq!(0_f64, val.to_f64().unwrap());
+        }
+
+        #[test]
+        fn test_val_to_string() {
+            let err_val = TestVal::new();
+            assert!(err_val.to_string().is_err());
+
+            let mut val = TestVal::new();
+            val.test_string = Some(String::default());
+            assert_eq!(String::default(), val.to_string().unwrap());
+        }
+
+        #[test]
+        fn test_val_to_datetime() {
+            let err_val = TestVal::new();
+            assert!(err_val.to_datetime().is_err());
+
+            let mut val = TestVal::new();
+            let now = Utc::now();
+            val.test_datetime = Some(now.clone());
+            assert_eq!(now, val.to_datetime().unwrap());
+        }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_utils::TestVal;
 
     #[derive(Debug)]
     struct DummyRow {
         data: String,
     }
-    impl DataRow<DummyVal> for DummyRow {
-        fn get(&self, _: &str) -> DummyVal {
-            DummyVal {}
+    impl DataRow<TestVal> for DummyRow {
+        fn get(&self, _: &str) -> TestVal {
+            let mut val = TestVal::new();
+            val.test_string = Some(self.data.clone());
+            val
         }
     }
     impl Clone for DummyRow {
@@ -155,7 +299,7 @@ mod tests {
         data: Vec<DummyRow>,
     }
     #[async_trait]
-    impl DataStore<DummyVal, DummyRow> for DummyDataStore {
+    impl DataStore<TestVal, DummyRow> for DummyDataStore {
         async fn execute_query(&self, _: String) -> Result<Vec<DummyRow>, DataStoreError> {
             Ok(self.data.clone())
         }
@@ -191,8 +335,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(results.len(), 2);
-        let expected = results[0].get("").to_i32();
-        assert!(expected.is_ok());
+        let expected = results[0].get("").to_string();
+        assert_eq!("row1".to_string(), expected.unwrap());
         assert_eq!(store.data, store.clone().data);
 
         let parameterized_results = store
