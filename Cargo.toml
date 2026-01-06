@@ -1,12 +1,12 @@
 [package]
 name = "rust-db-lib"
-version = "3.1.0"
+version = "3.1.1"
 edition = "2024"
 
 [dependencies]
 async-trait = "0.1.89"
 chrono = "0.4.42"
-sqlx = { version = "0.8.6", features = ["chrono", "postgres"] }
+sqlx = { version = "0.8.6", features = ["chrono", "postgres", "runtime-tokio"] }
 tracing = "0.1.44"
 
 [dev-dependencies]
