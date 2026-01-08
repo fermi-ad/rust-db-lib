@@ -1,11 +1,12 @@
 [package]
 name = "rust-db-lib"
-version = "3.1.1"
+version = "4.0.0"
 edition = "2024"
 
 [dependencies]
 async-trait = "0.1.89"
 chrono = "0.4.42"
+rust-env-var-lib = { git = "https://github.com/fermi-ad/rust-env-var-lib.git", tag = "v1.1.0" }
 sqlx = { version = "0.8.6", features = ["chrono", "postgres", "runtime-tokio"] }
 tracing = "0.1.44"
 
