@@ -19,6 +19,7 @@ impl Error for TestError {}
 /// Implementation of [`DataVal`] that can be configured to return mock data.
 /// Each field is optional, and the various implementations of the `DataVal` methods will attempt to read from the corresponding field.
 /// If a field is populated, its value is returned. If it is not, an instance of [`TestError`] is generated and returned.
+#[derive(Debug)]
 pub struct TestVal {
     pub test_bool: Option<bool>,
     pub test_i8: Option<i8>,
@@ -94,10 +95,24 @@ impl DataVal for TestVal {
         Self::translate(self.test_datetime)
     }
 }
+impl PartialEq for TestVal {
+    fn eq(&self, other: &Self) -> bool {
+        self.test_bool == other.test_bool
+            && self.test_datetime == other.test_datetime
+            && self.test_f32 == other.test_f32
+            && self.test_f64 == other.test_f64
+            && self.test_i16 == other.test_i16
+            && self.test_i32 == other.test_i32
+            && self.test_i64 == other.test_i64
+            && self.test_i8 == other.test_i8
+            && self.test_string == other.test_string
+    }
+}
 
 /// Implementation of [`ParameterizedQuery`] that can be used in test cases.
 /// This implementation does not actually execute any queries, but simply returns the data provided at construction time.
 /// All `bind_` methods are no-ops, except for `bind_string`, which records the latest string parameter that was bound.
+#[derive(Debug)]
 pub struct TestParameterizedQuery<T: DataRow<TestVal>> {
     /// The data to be returned when the query is executed.
     pub data: Vec<T>,
@@ -160,6 +175,7 @@ impl<'a, T: DataRow<TestVal>> ParameterizedQuery<'a, TestVal, T> for TestParamet
 /// Implementation of [`DataStore`] that can be used in test cases.
 /// This implementation does not actually connect to any database, but simply returns the data provided at construction time.
 /// Calling `init_parameterized_query` will return an instance of [`TestParameterizedQuery`] initialized with the same data.
+#[derive(Debug)]
 pub struct TestDataStore<T: DataRow<TestVal> + Clone> {
     pub data: Vec<T>,
 }
@@ -381,5 +397,17 @@ mod tests {
 
         let parameterized_results = parameterized_query.execute().await.unwrap();
         assert_eq!(parameterized_results, results);
+    }
+
+    #[test]
+    fn test_display_test_error() {
+        let err = TestError;
+        assert_eq!(format!("{}", err), "TestError!");
+    }
+
+    #[test]
+    fn test_testval_default() {
+        let val = TestVal::default();
+        assert_eq!(val, TestVal::new());
     }
 }
