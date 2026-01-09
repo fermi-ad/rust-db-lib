@@ -186,13 +186,13 @@ impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
     }
 }
 #[async_trait]
-impl<'a, T: DataRow<TestVal> + Clone> DataStore<'a, TestVal, T, TestParameterizedQuery<T>>
-    for TestDataStore<T>
-{
-    async fn execute_query(&'a self, _: &'a str) -> Result<Vec<T>, DataStoreError> {
+impl<'a, T: DataRow<TestVal> + Clone> DataStore<'a, TestVal, T> for TestDataStore<T> {
+    type ParamQueryImpl = TestParameterizedQuery<T>;
+
+    async fn execute_query(&self, _: &str) -> Result<Vec<T>, DataStoreError> {
         Ok(self.data.clone())
     }
-    fn init_parameterized_query(&'a self, _: &'a str) -> TestParameterizedQuery<T> {
+    fn init_parameterized_query(&'a self, _: &str) -> Self::ParamQueryImpl {
         TestParameterizedQuery::new(self.data.clone())
     }
 }

@@ -249,20 +249,17 @@ impl Clone for PostgresDataStore {
     }
 }
 #[async_trait]
-impl<'a> DataStore<'a, PostgresDataVal, PostgresDataRow, PostgresParameterizedQuery<'a>>
-    for PostgresDataStore
-{
-    async fn execute_query(
-        &'a self,
-        query: &'a str,
-    ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
+impl<'a> DataStore<'a, PostgresDataVal, PostgresDataRow> for PostgresDataStore {
+    type ParamQueryImpl = PostgresParameterizedQuery<'a>;
+
+    async fn execute_query(&self, query: &str) -> Result<Vec<PostgresDataRow>, DataStoreError> {
         let query_result = sqlx::query(query).fetch_all(&self.db_pool).await;
         match query_result {
             Ok(rows) => Ok(rows.into_iter().map(PostgresDataRow::from).collect()),
             Err(e) => Err(DataStoreError::from(e)),
         }
     }
-    fn init_parameterized_query(&'a self, query: &'a str) -> PostgresParameterizedQuery<'a> {
+    fn init_parameterized_query(&'a self, query: &'a str) -> Self::ParamQueryImpl {
         let query_builder = sqlx::query(query);
         PostgresParameterizedQuery {
             query_builder,

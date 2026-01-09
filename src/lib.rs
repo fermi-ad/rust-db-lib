@@ -106,18 +106,17 @@ pub trait DataRow<T: DataVal>: Send + Sync {
 
 /// Abstraction for a data store capable of executing queries
 #[async_trait]
-pub trait DataStore<'a, T: DataVal, U: DataRow<T>, PQ: ParameterizedQuery<'a, T, U>>:
-    Clone + Send + Sync
-{
+pub trait DataStore<'a, T: DataVal, U: DataRow<T>>: Clone + Send + Sync {
+    type ParamQueryImpl: ParameterizedQuery<'a, T, U>;
     /// Executes a basic SQL statement. If any user input is required, use [`init_parameterized_query`](Self::init_parameterized_query)
-    async fn execute_query(&'a self, query: &'a str) -> Result<Vec<U>, DataStoreError>;
+    async fn execute_query(&self, query: &str) -> Result<Vec<U>, DataStoreError>;
 
     /// Initializes a [`ParameterizedQuery`] with the provided query statement.
     ///
     /// Note: It is expected that the query statement will have sequential placeholders for the paramterized data.
     /// Example: If passing 5 elements into the query, the query should contain `$1`, `$2`, `$3`, `$4`, and `$5`, and
     /// the bindings should have no fewer than 5 elements (any additional elements beyond 5 will be ignored).
-    fn init_parameterized_query(&'a self, query: &'a str) -> PQ;
+    fn init_parameterized_query(&'a self, query: &'a str) -> Self::ParamQueryImpl;
 }
 
 #[cfg(test)]
