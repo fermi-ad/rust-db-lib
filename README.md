@@ -13,7 +13,7 @@ The following implementations are provided for connecting to the DB.
 #### Required environment variables
 For this lib to operate successfully, the following environment variables must be set:
 - `DATABASE_HOST` - The host of the database, e.g. `localhost`, `10.32.12.53`, `fermi-db.fnal.gov`, etc.
-- `DATABASE_PORT` - The port to use on the host. Must parse to an unsigned 16-bit integer.
+- `DATABASE_PORT` - The port to use on the host. Must parse to an unsigned 16-bit integer. If none is provided, the default PostgreSQL port of `5432` will be used.
 - `DATABASE_USER` - The username to use when connecting to the database.
 - `DATABASE_PASS` - The password for the desired user.
 - `DATABASE_NAME` - The name of the database being connected to, e.g. `adbs`
