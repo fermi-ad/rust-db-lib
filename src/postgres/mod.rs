@@ -1,14 +1,16 @@
-use super::{DataRow, DataStore, DataStoreError, DataVal};
+use super::{DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery, QueryParameter};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use rust_env_var_lib::env_var;
 use sqlx::{
     Decode, Error, Postgres, Row, Value, ValueRef,
-    postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgValue, PgValueRef},
+    postgres::{PgArguments, PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgValue, PgValueRef},
+    query::Query,
 };
-use std::{env, time::Duration};
+use std::time::Duration;
 use tracing::error;
 
-const FAILED_CONVERSION_MSG: &str =
-    "Failed to convert the results to the desired type. See error log for details";
+const FAILED_CONVERSION_MSG: &str = "Invalid data conversion. See error log for details";
 impl From<Box<dyn std::error::Error + Send + Sync>> for DataStoreError {
     fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
         error!("{:?}", err);
@@ -28,50 +30,6 @@ impl From<Error> for DataStoreError {
     }
 }
 
-/// Postgres implementation of the [`DataStore`] trait
-pub struct PostgresDataStore {
-    db_pool: PgPool,
-}
-impl PostgresDataStore {
-    async fn establish_connection_pool() -> PgPool {
-        let host = env::var("DATABASE_HOST").expect("DATABASE_URL must be set");
-
-        let port_str = env::var("DATABASE_PORT").expect("DATABASE_PORT must be set");
-        let port: u16 = str::parse(port_str.as_str()).expect("Could not parse DB port into a u16");
-
-        let username = env::var("DATABASE_USER").expect("DATABASE_USER must be set");
-        let password = env::var("DATABASE_PASS").expect("DATABASE_PASS must be set");
-
-        let db_name = env::var("DATABASE_NAME").expect("DATABASE_NAME must be set");
-
-        let connection_config = PgConnectOptions::new()
-            .host(host.as_str())
-            .port(port)
-            .username(username.as_str())
-            .password(password.as_str())
-            .database(db_name.as_str());
-
-        PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect_with(connection_config)
-            .await
-            .expect("Failed to connect to database...")
-    }
-    pub async fn new() -> Self {
-        Self {
-            db_pool: Self::establish_connection_pool().await,
-        }
-    }
-}
-impl Clone for PostgresDataStore {
-    fn clone(&self) -> Self {
-        Self {
-            db_pool: self.db_pool.clone(),
-        }
-    }
-}
-
 /// Postgres implementation of the [`DataVal`] trait.
 pub struct PostgresDataVal {
     column_data: Result<PgValue, DataStoreError>,
@@ -83,6 +41,13 @@ impl PostgresDataVal {
 }
 impl DataVal for PostgresDataVal {
     fn to_bool(self) -> Result<bool, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value.as_ref()),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError> {
         match self.column_data {
             Ok(value) => Self::decode(value.as_ref()),
             Err(err) => Err(err),
@@ -137,13 +102,6 @@ impl DataVal for PostgresDataVal {
             Err(err) => Err(err),
         }
     }
-
-    fn to_datetime(self) -> Result<chrono::DateTime<chrono::Utc>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
-    }
 }
 
 /// Represents a single row retrieved from a Postgres database
@@ -167,40 +125,93 @@ impl DataRow<PostgresDataVal> for PostgresDataRow {
     }
 }
 
-/// Encapsulates the execution of queries against a Postgres database.
-/// Returns results as [`PostgresDataRow`] instances.
-#[async_trait]
-impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
-    async fn execute_query(&self, query: String) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        let query_result = sqlx::query(query.as_str()).fetch_all(&self.db_pool).await;
-        match query_result {
-            Ok(rows) => Ok(rows.into_iter().map(PostgresDataRow::from).collect()),
-            Err(e) => {
-                error!("Query failed: {}", e);
-                Err(DataStoreError {
-                    details: "Query execution failed. See system logs for details.".to_string(),
-                })
-            }
+/// Postgres implementation of the [`DataStore`] trait
+pub struct PostgresDataStore {
+    db_pool: PgPool,
+}
+impl PostgresDataStore {
+    async fn establish_connection_pool() -> PgPool {
+        let host: String = env_var::get("DATABASE_HOST")
+            .to_option()
+            .expect("DATABASE_HOST must be set");
+
+        let port = env_var::get("DATABASE_PORT").or(5432_u16);
+
+        let username: String = env_var::get("DATABASE_USER")
+            .to_option()
+            .expect("DATABASE_USER must be set");
+        let password: String = env_var::get("DATABASE_PASS")
+            .to_option()
+            .expect("DATABASE_PASS must be set");
+
+        let db_name: String = env_var::get("DATABASE_NAME")
+            .to_option()
+            .expect("DATABASE_NAME must be set");
+
+        let connection_config = PgConnectOptions::new()
+            .host(host.as_str())
+            .port(port)
+            .username(username.as_str())
+            .password(password.as_str())
+            .database(db_name.as_str());
+
+        PgPoolOptions::new()
+            .max_connections(5)
+            .acquire_timeout(Duration::from_secs(10))
+            .connect_with(connection_config)
+            .await
+            .expect("Failed to connect to database...")
+    }
+
+    /// Creates a new instance of the `PostgresDataStore` with an established connection pool.
+    pub async fn new() -> Self {
+        Self {
+            db_pool: Self::establish_connection_pool().await,
         }
     }
-    async fn execute_parameterized_query(
-        &self,
-        query: String,
-        bindings: Vec<String>,
+
+    async fn run_query<'a>(
+        &'a self,
+        query: Query<'a, Postgres, PgArguments>,
     ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        let mut query_builder = sqlx::query(query.as_str());
-        for binding in bindings {
-            query_builder = query_builder.bind(binding);
-        }
-        let query_result = query_builder.fetch_all(&self.db_pool).await;
+        let query_result = query.fetch_all(&self.db_pool).await;
         match query_result {
             Ok(rows) => Ok(rows.into_iter().map(PostgresDataRow::from).collect()),
-            Err(e) => {
-                error!("Query failed: {}", e);
-                Err(DataStoreError {
-                    details: "Query execution failed. See system logs for details.".to_string(),
-                })
+            Err(e) => Err(DataStoreError::from(e)),
+        }
+    }
+}
+impl Clone for PostgresDataStore {
+    fn clone(&self) -> Self {
+        Self {
+            db_pool: self.db_pool.clone(),
+        }
+    }
+}
+#[async_trait]
+impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
+    async fn execute_query(&self, query: &str) -> Result<Vec<PostgresDataRow>, DataStoreError> {
+        self.run_query(sqlx::query(query)).await
+    }
+
+    async fn execute_parameterized_query(
+        &self,
+        parameterized_query: ParameterizedQuery,
+    ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
+        let mut query_builder = sqlx::query(parameterized_query.statement.as_str());
+        for parameter in parameterized_query.bindings {
+            query_builder = match parameter {
+                QueryParameter::BOOL(val) => query_builder.bind(val),
+                QueryParameter::DATETIME(val) => query_builder.bind(val),
+                QueryParameter::I8(val) => query_builder.bind(val),
+                QueryParameter::I16(val) => query_builder.bind(val),
+                QueryParameter::I32(val) => query_builder.bind(val),
+                QueryParameter::I64(val) => query_builder.bind(val),
+                QueryParameter::F32(val) => query_builder.bind(val),
+                QueryParameter::F64(val) => query_builder.bind(val),
+                QueryParameter::STR(val) => query_builder.bind(val),
             }
         }
+        self.run_query(query_builder).await
     }
 }

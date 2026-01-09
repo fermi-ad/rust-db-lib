@@ -931,12 +931,21 @@ dependencies = [
 
 [[package]]
 name = "rust-db-lib"
-version = "3.1.1"
+version = "4.0.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "rust-env-var-lib",
  "sqlx",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "rust-env-var-lib"
+version = "1.1.0"
+source = "git+https://github.com/fermi-ad/rust-env-var-lib.git?tag=v1.1.0#b6f9430566b48f4a6a82342159f8e49322cb5b18"
+dependencies = [
  "tracing",
 ]
 
