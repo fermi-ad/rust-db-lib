@@ -109,72 +109,8 @@ impl PartialEq for TestVal {
     }
 }
 
-/// Implementation of [`ParameterizedQuery`] that can be used in test cases.
-/// This implementation does not actually execute any queries, but simply returns the data provided at construction time.
-/// All `bind_` methods are no-ops, except for `bind_string`, which records the latest string parameter that was bound.
-#[derive(Debug)]
-pub struct TestParameterizedQuery<T: DataRow<TestVal>> {
-    /// The data to be returned when the query is executed.
-    pub data: Vec<T>,
-    /// The latest string parameter that was bound to the query.
-    pub latest_string_binding: String,
-}
-impl<T: DataRow<TestVal>> TestParameterizedQuery<T> {
-    /// Convenience method for generating an instance of [`TestParameterizedQuery`] with the provided data.
-    pub fn new(data: Vec<T>) -> Self {
-        Self {
-            data,
-            latest_string_binding: String::new(),
-        }
-    }
-}
-#[async_trait]
-impl<'a, T: DataRow<TestVal>> ParameterizedQuery<'a, TestVal, T> for TestParameterizedQuery<T> {
-    fn bind_bool(&'a mut self, _: bool) -> Result<(), DataStoreError> {
-        Ok(())
-    }
-
-    fn bind_datetime(&'a mut self, _: DateTime<Utc>) -> Result<(), DataStoreError> {
-        Ok(())
-    }
-
-    fn bind_i8(&'a mut self, _: i8) -> Result<(), DataStoreError> {
-        Ok(())
-    }
-
-    fn bind_i16(&'a mut self, _: i16) -> Result<(), DataStoreError> {
-        Ok(())
-    }
-
-    fn bind_i32(&'a mut self, _: i32) -> Result<(), DataStoreError> {
-        Ok(())
-    }
-
-    fn bind_i64(&'a mut self, _: i64) -> Result<(), DataStoreError> {
-        Ok(())
-    }
-
-    fn bind_f32(&'a mut self, _: f32) -> Result<(), DataStoreError> {
-        Ok(())
-    }
-
-    fn bind_f64(&'a mut self, _: f64) -> Result<(), DataStoreError> {
-        Ok(())
-    }
-
-    fn bind_string(&'a mut self, parameter: String) -> Result<(), DataStoreError> {
-        self.latest_string_binding = parameter;
-        Ok(())
-    }
-
-    async fn execute(self) -> Result<Vec<T>, DataStoreError> {
-        Ok(self.data)
-    }
-}
-
 /// Implementation of [`DataStore`] that can be used in test cases.
 /// This implementation does not actually connect to any database, but simply returns the data provided at construction time.
-/// Calling `init_parameterized_query` will return an instance of [`TestParameterizedQuery`] initialized with the same data.
 #[derive(Debug)]
 pub struct TestDataStore<T: DataRow<TestVal> + Clone> {
     pub data: Vec<T>,
@@ -186,14 +122,16 @@ impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
     }
 }
 #[async_trait]
-impl<'a, T: DataRow<TestVal> + Clone> DataStore<'a, TestVal, T> for TestDataStore<T> {
-    type ParamQueryImpl = TestParameterizedQuery<T>;
-
+impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
     async fn execute_query(&self, _: &str) -> Result<Vec<T>, DataStoreError> {
         Ok(self.data.clone())
     }
-    fn init_parameterized_query(&'a self, _: &str) -> Self::ParamQueryImpl {
-        TestParameterizedQuery::new(self.data.clone())
+
+    async fn execute_parameterized_query(
+        &self,
+        _: ParameterizedQuery,
+    ) -> Result<Vec<T>, DataStoreError> {
+        Ok(self.data.clone())
     }
 }
 impl<T: DataRow<TestVal> + Clone> Clone for TestDataStore<T> {
@@ -323,54 +261,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_parameterized_query_bind_bool() {
-        let mut pq: TestParameterizedQuery<TestRow> = TestParameterizedQuery::new(vec![]);
-        assert!(pq.bind_bool(true).is_ok());
-    }
-
-    #[test]
-    fn test_parameterized_query_bind_datetime() {
-        let mut pq: TestParameterizedQuery<TestRow> = TestParameterizedQuery::new(vec![]);
-        assert!(pq.bind_datetime(Utc::now()).is_ok());
-    }
-
-    #[test]
-    fn test_parameterized_query_bind_i8() {
-        let mut pq: TestParameterizedQuery<TestRow> = TestParameterizedQuery::new(vec![]);
-        assert!(pq.bind_i8(0).is_ok());
-    }
-
-    #[test]
-    fn test_parameterized_query_bind_i16() {
-        let mut pq: TestParameterizedQuery<TestRow> = TestParameterizedQuery::new(vec![]);
-        assert!(pq.bind_i16(0).is_ok());
-    }
-
-    #[test]
-    fn test_parameterized_query_bind_i32() {
-        let mut pq: TestParameterizedQuery<TestRow> = TestParameterizedQuery::new(vec![]);
-        assert!(pq.bind_i32(0).is_ok());
-    }
-
-    #[test]
-    fn test_parameterized_query_bind_i64() {
-        let mut pq: TestParameterizedQuery<TestRow> = TestParameterizedQuery::new(vec![]);
-        assert!(pq.bind_i64(0).is_ok());
-    }
-
-    #[test]
-    fn test_parameterized_query_bind_f32() {
-        let mut pq: TestParameterizedQuery<TestRow> = TestParameterizedQuery::new(vec![]);
-        assert!(pq.bind_f32(0.0).is_ok());
-    }
-
-    #[test]
-    fn test_parameterized_query_bind_f64() {
-        let mut pq: TestParameterizedQuery<TestRow> = TestParameterizedQuery::new(vec![]);
-        assert!(pq.bind_f64(0.0).is_ok());
-    }
-
     #[tokio::test]
     async fn test_data_store() {
         let data1 = TestRow {
@@ -386,16 +276,12 @@ mod tests {
         let expected = results[0].get("").to_string();
         assert_eq!("row1".to_string(), expected.unwrap());
 
-        let mut parameterized_query = store.init_parameterized_query("SELECT * FROM dummy");
-        parameterized_query
-            .bind_string("Some binding".to_string())
-            .unwrap();
-        assert_eq!(
-            parameterized_query.latest_string_binding,
-            "Some binding".to_string()
-        );
+        let parameterized_query = ParameterizedQuery::new(String::new());
 
-        let parameterized_results = parameterized_query.execute().await.unwrap();
+        let parameterized_results = store
+            .execute_parameterized_query(parameterized_query)
+            .await
+            .unwrap();
         assert_eq!(parameterized_results, results);
     }
 

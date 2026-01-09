@@ -1,4 +1,4 @@
-use super::{DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery};
+use super::{DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery, QueryParameter};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use rust_env_var_lib::env_var;
@@ -125,77 +125,6 @@ impl DataRow<PostgresDataVal> for PostgresDataRow {
     }
 }
 
-pub struct PostgresParameterizedQuery<'a> {
-    query_builder: Query<'a, Postgres, PgArguments>,
-    db_pool: &'a PgPool,
-}
-#[async_trait]
-impl<'a> ParameterizedQuery<'a, PostgresDataVal, PostgresDataRow>
-    for PostgresParameterizedQuery<'a>
-{
-    fn bind_bool(&'a mut self, parameter: bool) -> Result<(), DataStoreError> {
-        self.query_builder
-            .try_bind(parameter)
-            .map_err(DataStoreError::from)
-    }
-
-    fn bind_datetime(&'a mut self, parameter: DateTime<Utc>) -> Result<(), DataStoreError> {
-        self.query_builder
-            .try_bind(parameter)
-            .map_err(DataStoreError::from)
-    }
-
-    fn bind_i8(&'a mut self, parameter: i8) -> Result<(), DataStoreError> {
-        self.query_builder
-            .try_bind(parameter)
-            .map_err(DataStoreError::from)
-    }
-
-    fn bind_i16(&'a mut self, parameter: i16) -> Result<(), DataStoreError> {
-        self.query_builder
-            .try_bind(parameter)
-            .map_err(DataStoreError::from)
-    }
-
-    fn bind_i32(&'a mut self, parameter: i32) -> Result<(), DataStoreError> {
-        self.query_builder
-            .try_bind(parameter)
-            .map_err(DataStoreError::from)
-    }
-
-    fn bind_i64(&'a mut self, parameter: i64) -> Result<(), DataStoreError> {
-        self.query_builder
-            .try_bind(parameter)
-            .map_err(DataStoreError::from)
-    }
-
-    fn bind_f32(&'a mut self, parameter: f32) -> Result<(), DataStoreError> {
-        self.query_builder
-            .try_bind(parameter)
-            .map_err(DataStoreError::from)
-    }
-
-    fn bind_f64(&'a mut self, parameter: f64) -> Result<(), DataStoreError> {
-        self.query_builder
-            .try_bind(parameter)
-            .map_err(DataStoreError::from)
-    }
-
-    fn bind_string(&'a mut self, parameter: String) -> Result<(), DataStoreError> {
-        self.query_builder
-            .try_bind(parameter)
-            .map_err(DataStoreError::from)
-    }
-
-    async fn execute(self) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        let query_result = self.query_builder.fetch_all(self.db_pool).await;
-        match query_result {
-            Ok(rows) => Ok(rows.into_iter().map(PostgresDataRow::from).collect()),
-            Err(e) => Err(DataStoreError::from(e)),
-        }
-    }
-}
-
 /// Postgres implementation of the [`DataStore`] trait
 pub struct PostgresDataStore {
     db_pool: PgPool,
@@ -240,6 +169,17 @@ impl PostgresDataStore {
             db_pool: Self::establish_connection_pool().await,
         }
     }
+
+    async fn run_query<'a>(
+        &'a self,
+        query: Query<'a, Postgres, PgArguments>,
+    ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
+        let query_result = query.fetch_all(&self.db_pool).await;
+        match query_result {
+            Ok(rows) => Ok(rows.into_iter().map(PostgresDataRow::from).collect()),
+            Err(e) => Err(DataStoreError::from(e)),
+        }
+    }
 }
 impl Clone for PostgresDataStore {
     fn clone(&self) -> Self {
@@ -249,21 +189,29 @@ impl Clone for PostgresDataStore {
     }
 }
 #[async_trait]
-impl<'a> DataStore<'a, PostgresDataVal, PostgresDataRow> for PostgresDataStore {
-    type ParamQueryImpl = PostgresParameterizedQuery<'a>;
-
+impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
     async fn execute_query(&self, query: &str) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        let query_result = sqlx::query(query).fetch_all(&self.db_pool).await;
-        match query_result {
-            Ok(rows) => Ok(rows.into_iter().map(PostgresDataRow::from).collect()),
-            Err(e) => Err(DataStoreError::from(e)),
-        }
+        self.run_query(sqlx::query(query)).await
     }
-    fn init_parameterized_query(&'a self, query: &'a str) -> Self::ParamQueryImpl {
-        let query_builder = sqlx::query(query);
-        PostgresParameterizedQuery {
-            query_builder,
-            db_pool: &self.db_pool,
+
+    async fn execute_parameterized_query(
+        &self,
+        parameterized_query: ParameterizedQuery,
+    ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
+        let mut query_builder = sqlx::query(parameterized_query.statement.as_str());
+        for parameter in parameterized_query.bindings {
+            query_builder = match parameter {
+                QueryParameter::BOOL(val) => query_builder.bind(val),
+                QueryParameter::DATETIME(val) => query_builder.bind(val),
+                QueryParameter::I8(val) => query_builder.bind(val),
+                QueryParameter::I16(val) => query_builder.bind(val),
+                QueryParameter::I32(val) => query_builder.bind(val),
+                QueryParameter::I64(val) => query_builder.bind(val),
+                QueryParameter::F32(val) => query_builder.bind(val),
+                QueryParameter::F64(val) => query_builder.bind(val),
+                QueryParameter::STR(val) => query_builder.bind(val),
+            }
         }
+        self.run_query(query_builder).await
     }
 }

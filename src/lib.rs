@@ -60,63 +60,69 @@ pub trait DataVal: Send + Sync {
     fn to_string(self) -> Result<String, DataStoreError>;
 }
 
-/// Abstraction representing a parameterized query. Exposes a method for binding parameters to the query statement.
-///
-/// It is expected that the query string will have sequential placeholders for the paramterized data.
-/// Example: If passing 5 elements into the query. the query should contain `$1`, `$2`, `$3`, `$4`, and `$5`, and
-/// the bindings should have no fewer than 5 elements (any additional elements beyond 5 will be ignored).
-#[async_trait]
-pub trait ParameterizedQuery<'a, T: DataVal, U: DataRow<T>>: Send + Sync {
-    /// Binds a [`bool`] to the query.
-    fn bind_bool(&'a mut self, parameter: bool) -> Result<(), DataStoreError>;
-
-    /// Binds a [`DateTime<Utc>`] to the query.
-    fn bind_datetime(&'a mut self, parameter: DateTime<Utc>) -> Result<(), DataStoreError>;
-
-    /// Binds a [`i8`] to the query.
-    fn bind_i8(&'a mut self, parameter: i8) -> Result<(), DataStoreError>;
-
-    /// Binds a [`i16`] to the query.
-    fn bind_i16(&'a mut self, parameter: i16) -> Result<(), DataStoreError>;
-
-    /// Binds a [`i32`] to the query.
-    fn bind_i32(&'a mut self, parameter: i32) -> Result<(), DataStoreError>;
-
-    /// Binds a [`i64`] to the query.
-    fn bind_i64(&'a mut self, parameter: i64) -> Result<(), DataStoreError>;
-
-    /// Binds a [`f32`] to the query.
-    fn bind_f32(&'a mut self, parameter: f32) -> Result<(), DataStoreError>;
-
-    /// Binds a [`f64`] to the query.
-    fn bind_f64(&'a mut self, parameter: f64) -> Result<(), DataStoreError>;
-
-    /// Binds a String to the query.
-    fn bind_string(&'a mut self, parameter: String) -> Result<(), DataStoreError>;
-
-    /// Executes the parameterized query and returns the resulting rows.
-    async fn execute(self) -> Result<Vec<U>, DataStoreError>;
-}
-
 /// Abstraction representing a single row retrieved from a data store
 pub trait DataRow<T: DataVal>: Send + Sync {
     /// Generates an instance of [`DataVal`] wrapping the contents of the specified column
     fn get(&self, column_name: &str) -> T;
 }
 
+/// Represents a single parameter to be bound to a parameterized query.
+#[derive(Clone, Debug, PartialEq)]
+pub enum QueryParameter {
+    BOOL(bool),
+    DATETIME(DateTime<Utc>),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    F32(f32),
+    F64(f64),
+    STR(String),
+}
+
+/// Abstraction representing a parameterized query. Exposes a method for binding parameters to the query statement.
+///
+/// It is expected that the query string will have sequential placeholders for the parameterized data.
+/// Example: If passing 5 elements into the query. the query should contain `$1`, `$2`, `$3`, `$4`, and `$5`, and
+/// the bindings should have no fewer than 5 elements (any additional elements beyond 5 will be ignored).
+#[derive(Clone, Debug)]
+pub struct ParameterizedQuery {
+    /// The SQL query statement with placeholders for parameterized data
+    pub statement: String,
+    /// The list of [`QueryParameter`]s to bind to the query statement
+    pub bindings: Vec<QueryParameter>,
+}
+impl ParameterizedQuery {
+    /// Initializes a [`ParameterizedQuery`] with the provided query statement.
+    ///
+    /// It is expected that the query statement will have sequential placeholders for the parameterized data.
+    /// Example: If passing 5 elements into the query, the query should contain `$1`, `$2`, `$3`, `$4`, and `$5`, and
+    /// the bindings should have no fewer than 5 elements (any additional elements beyond 5 will be ignored).
+    pub fn new(query_statement: String) -> Self {
+        Self {
+            statement: query_statement,
+            bindings: Vec::new(),
+        }
+    }
+
+    /// Binds a [`QueryParameter`] to the query. Must be called in the order the parameters appear in the query string.
+    pub fn bind(&mut self, parameter: QueryParameter) {
+        self.bindings.push(parameter);
+    }
+}
+
 /// Abstraction for a data store capable of executing queries
 #[async_trait]
-pub trait DataStore<'a, T: DataVal, U: DataRow<T>>: Clone + Send + Sync {
-    type ParamQueryImpl: ParameterizedQuery<'a, T, U>;
+pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync {
     /// Executes a basic SQL statement. If any user input is required, use [`init_parameterized_query`](Self::init_parameterized_query)
     async fn execute_query(&self, query: &str) -> Result<Vec<U>, DataStoreError>;
 
-    /// Initializes a [`ParameterizedQuery`] with the provided query statement.
-    ///
-    /// Note: It is expected that the query statement will have sequential placeholders for the paramterized data.
-    /// Example: If passing 5 elements into the query, the query should contain `$1`, `$2`, `$3`, `$4`, and `$5`, and
-    /// the bindings should have no fewer than 5 elements (any additional elements beyond 5 will be ignored).
-    fn init_parameterized_query(&'a self, query: &'a str) -> Self::ParamQueryImpl;
+    /// Executes a fully constructed parameterized query.
+    /// Values for each of the parameters must have been bound prior to calling this method.
+    async fn execute_parameterized_query(
+        &self,
+        parameterized_query: ParameterizedQuery,
+    ) -> Result<Vec<U>, DataStoreError>;
 }
 
 #[cfg(test)]
@@ -129,5 +135,18 @@ mod tests {
             details: "Test error".to_string(),
         };
         assert_eq!(format!("{}", error), "DataStoreError: Test error");
+    }
+
+    #[test]
+    fn test_parameterized_query_new_and_bind() {
+        let mut param_query =
+            ParameterizedQuery::new("SELECT * FROM table WHERE id = $1".to_string());
+        assert_eq!(param_query.statement, "SELECT * FROM table WHERE id = $1");
+        assert!(param_query.bindings.is_empty());
+
+        let test_param = QueryParameter::I32(42);
+        param_query.bind(test_param.clone());
+        assert_eq!(param_query.bindings.len(), 1);
+        assert_eq!(param_query.bindings[0], test_param);
     }
 }
