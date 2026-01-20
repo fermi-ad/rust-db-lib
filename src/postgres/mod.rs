@@ -153,7 +153,8 @@ impl PostgresDataStore {
             .port(port)
             .username(username.as_str())
             .password(password.as_str())
-            .database(db_name.as_str());
+            .database(db_name.as_str())
+            .ssl_mode(sqlx::postgres::PgSslMode::Require);
 
         PgPoolOptions::new()
             .max_connections(5)
