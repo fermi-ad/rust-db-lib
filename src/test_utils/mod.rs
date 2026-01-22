@@ -21,8 +21,17 @@ fn generate_error() -> DataStoreError {
 }
 
 /// Implementation of [`DataVal`] that can be configured to return mock data.
-/// Each field is optional, and the various implementations of the `DataVal` methods will attempt to read from the corresponding field.
-/// If a field is populated, its value is returned. If it is not, an instance of [`TestError`] is generated and returned.
+/// Each field is optional, and the various implementations of the `DataVal` methods will attempt to read from
+/// the corresponding field.
+///
+/// Regular methods:
+/// If a field is populated, its value is returned. If it is not, an instance of [`TestError`] is generated
+/// and returned.
+///
+/// Methods ending with `_optional`:
+/// If a field is populated, its value is returned. If it is not, the [`is_nullable`](TestVal::is_nullable)
+/// field is checked. If the field is `true`, [`None`] is returned. Else, an instance of [`TestError`] is
+/// generated and returned.
 #[derive(Debug)]
 pub struct TestVal {
     pub is_nullable: bool,
