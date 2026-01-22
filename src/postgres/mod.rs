@@ -47,7 +47,21 @@ impl DataVal for PostgresDataVal {
         }
     }
 
+    fn to_bool_optional(self) -> Result<Option<bool>, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value.as_ref()),
+            Err(err) => Err(err),
+        }
+    }
+
     fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value.as_ref()),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_datetime_optional(self) -> Result<Option<DateTime<Utc>>, DataStoreError> {
         match self.column_data {
             Ok(value) => Self::decode(value.as_ref()),
             Err(err) => Err(err),
@@ -61,7 +75,21 @@ impl DataVal for PostgresDataVal {
         }
     }
 
+    fn to_i8_optional(self) -> Result<Option<i8>, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value.as_ref()),
+            Err(err) => Err(err),
+        }
+    }
+
     fn to_i16(self) -> Result<i16, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value.as_ref()),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_i16_optional(self) -> Result<Option<i16>, DataStoreError> {
         match self.column_data {
             Ok(value) => Self::decode(value.as_ref()),
             Err(err) => Err(err),
@@ -75,7 +103,21 @@ impl DataVal for PostgresDataVal {
         }
     }
 
+    fn to_i32_optional(self) -> Result<Option<i32>, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value.as_ref()),
+            Err(err) => Err(err),
+        }
+    }
+
     fn to_i64(self) -> Result<i64, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value.as_ref()),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_i64_optional(self) -> Result<Option<i64>, DataStoreError> {
         match self.column_data {
             Ok(value) => Self::decode(value.as_ref()),
             Err(err) => Err(err),
@@ -89,6 +131,13 @@ impl DataVal for PostgresDataVal {
         }
     }
 
+    fn to_f32_optional(self) -> Result<Option<f32>, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value.as_ref()),
+            Err(err) => Err(err),
+        }
+    }
+
     fn to_f64(self) -> Result<f64, DataStoreError> {
         match self.column_data {
             Ok(value) => Self::decode(value.as_ref()),
@@ -96,7 +145,21 @@ impl DataVal for PostgresDataVal {
         }
     }
 
+    fn to_f64_optional(self) -> Result<Option<f64>, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value.as_ref()),
+            Err(err) => Err(err),
+        }
+    }
+
     fn to_string(self) -> Result<String, DataStoreError> {
+        match self.column_data {
+            Ok(value) => Self::decode(value.as_ref()),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn to_string_optional(self) -> Result<Option<String>, DataStoreError> {
         match self.column_data {
             Ok(value) => Self::decode(value.as_ref()),
             Err(err) => Err(err),

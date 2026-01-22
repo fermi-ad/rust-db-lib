@@ -16,12 +16,27 @@ impl Display for TestError {
 }
 impl Error for TestError {}
 
+fn generate_error() -> DataStoreError {
+    DataStoreError::from(Box::new(TestError) as Box<dyn std::error::Error + Send + Sync>)
+}
+
 /// Implementation of [`DataVal`] that can be configured to return mock data.
-/// Each field is optional, and the various implementations of the `DataVal` methods will attempt to read from the corresponding field.
-/// If a field is populated, its value is returned. If it is not, an instance of [`TestError`] is generated and returned.
+/// Each field is optional, and the various implementations of the `DataVal` methods will attempt to read from
+/// the corresponding field.
+///
+/// Regular methods:
+/// If a field is populated, its value is returned. If it is not, an instance of [`TestError`] is generated
+/// and returned.
+///
+/// Methods ending with `_optional`:
+/// If a field is populated, its value is returned. If it is not, the [`is_nullable`](TestVal::is_nullable)
+/// field is checked. If the field is `true`, [`None`] is returned. Else, an instance of [`TestError`] is
+/// generated and returned.
 #[derive(Debug)]
 pub struct TestVal {
+    pub is_nullable: bool,
     pub test_bool: Option<bool>,
+    pub test_datetime: Option<DateTime<Utc>>,
     pub test_i8: Option<i8>,
     pub test_i16: Option<i16>,
     pub test_i32: Option<i32>,
@@ -29,12 +44,12 @@ pub struct TestVal {
     pub test_f32: Option<f32>,
     pub test_f64: Option<f64>,
     pub test_string: Option<String>,
-    pub test_datetime: Option<DateTime<Utc>>,
 }
 impl TestVal {
     /// Convenience method for generating an instance of [`TestVal`] with all fields set to [`None`].
     pub fn new() -> Self {
         Self {
+            is_nullable: true,
             test_bool: None,
             test_datetime: None,
             test_f32: None,
@@ -48,9 +63,15 @@ impl TestVal {
     }
 
     fn translate<T>(op: Option<T>) -> Result<T, DataStoreError> {
-        op.ok_or(DataStoreError::from(
-            Box::new(TestError) as Box<dyn std::error::Error + Send + Sync>
-        ))
+        op.ok_or_else(generate_error)
+    }
+
+    fn translate_optional<T>(&self, op: Option<T>) -> Result<Option<T>, DataStoreError> {
+        if self.is_nullable || op.is_some() {
+            Ok(op)
+        } else {
+            Err(generate_error())
+        }
     }
 }
 impl Default for TestVal {
@@ -63,41 +84,79 @@ impl DataVal for TestVal {
         Self::translate(self.test_bool)
     }
 
+    fn to_bool_optional(self) -> Result<Option<bool>, DataStoreError> {
+        self.translate_optional(self.test_bool)
+    }
+
+    fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError> {
+        Self::translate(self.test_datetime)
+    }
+
+    fn to_datetime_optional(self) -> Result<Option<DateTime<Utc>>, DataStoreError> {
+        self.translate_optional(self.test_datetime)
+    }
+
     fn to_i8(self) -> Result<i8, DataStoreError> {
         Self::translate(self.test_i8)
+    }
+
+    fn to_i8_optional(self) -> Result<Option<i8>, DataStoreError> {
+        self.translate_optional(self.test_i8)
     }
 
     fn to_i16(self) -> Result<i16, DataStoreError> {
         Self::translate(self.test_i16)
     }
 
+    fn to_i16_optional(self) -> Result<Option<i16>, DataStoreError> {
+        self.translate_optional(self.test_i16)
+    }
+
     fn to_i32(self) -> Result<i32, DataStoreError> {
         Self::translate(self.test_i32)
+    }
+
+    fn to_i32_optional(self) -> Result<Option<i32>, DataStoreError> {
+        self.translate_optional(self.test_i32)
     }
 
     fn to_i64(self) -> Result<i64, DataStoreError> {
         Self::translate(self.test_i64)
     }
 
+    fn to_i64_optional(self) -> Result<Option<i64>, DataStoreError> {
+        self.translate_optional(self.test_i64)
+    }
+
     fn to_f32(self) -> Result<f32, DataStoreError> {
         Self::translate(self.test_f32)
+    }
+
+    fn to_f32_optional(self) -> Result<Option<f32>, DataStoreError> {
+        self.translate_optional(self.test_f32)
     }
 
     fn to_f64(self) -> Result<f64, DataStoreError> {
         Self::translate(self.test_f64)
     }
 
+    fn to_f64_optional(self) -> Result<Option<f64>, DataStoreError> {
+        self.translate_optional(self.test_f64)
+    }
+
     fn to_string(self) -> Result<String, DataStoreError> {
         Self::translate(self.test_string)
     }
 
-    fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError> {
-        Self::translate(self.test_datetime)
+    fn to_string_optional(self) -> Result<Option<String>, DataStoreError> {
+        let local = self.test_string.clone();
+        self.translate_optional(local)
     }
 }
 impl PartialEq for TestVal {
     fn eq(&self, other: &Self) -> bool {
-        self.test_bool == other.test_bool
+        self.is_nullable == other.is_nullable
+            && self.test_bool == other.test_bool
             && self.test_datetime == other.test_datetime
             && self.test_f32 == other.test_f32
             && self.test_f64 == other.test_f64
@@ -157,6 +216,20 @@ mod tests {
     }
 
     #[test]
+    fn test_val_to_bool_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_bool_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_bool_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_bool = Some(true);
+        assert!(val.to_bool_optional().unwrap().unwrap());
+    }
+
+    #[test]
     fn test_val_to_i8() {
         let err_val = TestVal::new();
         assert!(err_val.to_i8().is_err());
@@ -164,6 +237,20 @@ mod tests {
         let mut val = TestVal::new();
         val.test_i8 = Some(0_i8);
         assert_eq!(0_i8, val.to_i8().unwrap());
+    }
+
+    #[test]
+    fn test_val_to_i8_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_i8_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_i8_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_i8 = Some(0_i8);
+        assert_eq!(0_i8, val.to_i8_optional().unwrap().unwrap());
     }
 
     #[test]
@@ -177,6 +264,20 @@ mod tests {
     }
 
     #[test]
+    fn test_val_to_i16_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_i16_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_i16_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_i16 = Some(0_i16);
+        assert_eq!(0_i16, val.to_i16_optional().unwrap().unwrap());
+    }
+
+    #[test]
     fn test_val_to_i32() {
         let err_val = TestVal::new();
         assert!(err_val.to_i32().is_err());
@@ -184,6 +285,20 @@ mod tests {
         let mut val = TestVal::new();
         val.test_i32 = Some(0_i32);
         assert_eq!(0_i32, val.to_i32().unwrap());
+    }
+
+    #[test]
+    fn test_val_to_i32_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_i32_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_i32_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_i32 = Some(0_i32);
+        assert_eq!(0_i32, val.to_i32_optional().unwrap().unwrap());
     }
 
     #[test]
@@ -197,6 +312,20 @@ mod tests {
     }
 
     #[test]
+    fn test_val_to_i64_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_i64_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_i64_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_i64 = Some(0_i64);
+        assert_eq!(0_i64, val.to_i64_optional().unwrap().unwrap());
+    }
+
+    #[test]
     fn test_val_to_f32() {
         let err_val = TestVal::new();
         assert!(err_val.to_f32().is_err());
@@ -204,6 +333,20 @@ mod tests {
         let mut val = TestVal::new();
         val.test_f32 = Some(0_f32);
         assert_eq!(0_f32, val.to_f32().unwrap());
+    }
+
+    #[test]
+    fn test_val_to_f32_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_f32_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_f32_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_f32 = Some(0_f32);
+        assert_eq!(0_f32, val.to_f32_optional().unwrap().unwrap());
     }
 
     #[test]
@@ -217,6 +360,20 @@ mod tests {
     }
 
     #[test]
+    fn test_val_to_f64_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_f64_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_f64_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_f64 = Some(0_f64);
+        assert_eq!(0_f64, val.to_f64_optional().unwrap().unwrap());
+    }
+
+    #[test]
     fn test_val_to_string() {
         let err_val = TestVal::new();
         assert!(err_val.to_string().is_err());
@@ -224,6 +381,23 @@ mod tests {
         let mut val = TestVal::new();
         val.test_string = Some(String::default());
         assert_eq!(String::default(), val.to_string().unwrap());
+    }
+
+    #[test]
+    fn test_val_to_string_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_string_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_string_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_string = Some(String::default());
+        assert_eq!(
+            String::default(),
+            val.to_string_optional().unwrap().unwrap()
+        );
     }
 
     #[test]
@@ -235,6 +409,21 @@ mod tests {
         let now = Utc::now();
         val.test_datetime = Some(now.clone());
         assert_eq!(now, val.to_datetime().unwrap());
+    }
+
+    #[test]
+    fn test_val_to_datetime_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_datetime_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_datetime_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        let now = Utc::now();
+        val.test_datetime = Some(now.clone());
+        assert_eq!(now, val.to_datetime_optional().unwrap().unwrap());
     }
 
     #[derive(Debug)]
