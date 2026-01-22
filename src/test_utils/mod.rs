@@ -216,6 +216,20 @@ mod tests {
     }
 
     #[test]
+    fn test_val_to_bool_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_bool_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_bool_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_bool = Some(true);
+        assert!(val.to_bool_optional().unwrap().unwrap());
+    }
+
+    #[test]
     fn test_val_to_i8() {
         let err_val = TestVal::new();
         assert!(err_val.to_i8().is_err());
@@ -223,6 +237,20 @@ mod tests {
         let mut val = TestVal::new();
         val.test_i8 = Some(0_i8);
         assert_eq!(0_i8, val.to_i8().unwrap());
+    }
+
+    #[test]
+    fn test_val_to_i8_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_i8_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_i8_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_i8 = Some(0_i8);
+        assert_eq!(0_i8, val.to_i8_optional().unwrap().unwrap());
     }
 
     #[test]
@@ -236,6 +264,20 @@ mod tests {
     }
 
     #[test]
+    fn test_val_to_i16_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_i16_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_i16_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_i16 = Some(0_i16);
+        assert_eq!(0_i16, val.to_i16_optional().unwrap().unwrap());
+    }
+
+    #[test]
     fn test_val_to_i32() {
         let err_val = TestVal::new();
         assert!(err_val.to_i32().is_err());
@@ -243,6 +285,20 @@ mod tests {
         let mut val = TestVal::new();
         val.test_i32 = Some(0_i32);
         assert_eq!(0_i32, val.to_i32().unwrap());
+    }
+
+    #[test]
+    fn test_val_to_i32_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_i32_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_i32_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_i32 = Some(0_i32);
+        assert_eq!(0_i32, val.to_i32_optional().unwrap().unwrap());
     }
 
     #[test]
@@ -256,6 +312,20 @@ mod tests {
     }
 
     #[test]
+    fn test_val_to_i64_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_i64_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_i64_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_i64 = Some(0_i64);
+        assert_eq!(0_i64, val.to_i64_optional().unwrap().unwrap());
+    }
+
+    #[test]
     fn test_val_to_f32() {
         let err_val = TestVal::new();
         assert!(err_val.to_f32().is_err());
@@ -263,6 +333,20 @@ mod tests {
         let mut val = TestVal::new();
         val.test_f32 = Some(0_f32);
         assert_eq!(0_f32, val.to_f32().unwrap());
+    }
+
+    #[test]
+    fn test_val_to_f32_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_f32_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_f32_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_f32 = Some(0_f32);
+        assert_eq!(0_f32, val.to_f32_optional().unwrap().unwrap());
     }
 
     #[test]
@@ -276,6 +360,20 @@ mod tests {
     }
 
     #[test]
+    fn test_val_to_f64_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_f64_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_f64_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_f64 = Some(0_f64);
+        assert_eq!(0_f64, val.to_f64_optional().unwrap().unwrap());
+    }
+
+    #[test]
     fn test_val_to_string() {
         let err_val = TestVal::new();
         assert!(err_val.to_string().is_err());
@@ -283,6 +381,23 @@ mod tests {
         let mut val = TestVal::new();
         val.test_string = Some(String::default());
         assert_eq!(String::default(), val.to_string().unwrap());
+    }
+
+    #[test]
+    fn test_val_to_string_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_string_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_string_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        val.test_string = Some(String::default());
+        assert_eq!(
+            String::default(),
+            val.to_string_optional().unwrap().unwrap()
+        );
     }
 
     #[test]
@@ -294,6 +409,21 @@ mod tests {
         let now = Utc::now();
         val.test_datetime = Some(now.clone());
         assert_eq!(now, val.to_datetime().unwrap());
+    }
+
+    #[test]
+    fn test_val_to_datetime_optional() {
+        let mut err_val = TestVal::new();
+        err_val.is_nullable = false;
+        assert!(err_val.to_datetime_optional().is_err());
+
+        let val = TestVal::new();
+        assert!(val.to_datetime_optional().unwrap().is_none());
+
+        let mut val = TestVal::new();
+        let now = Utc::now();
+        val.test_datetime = Some(now.clone());
+        assert_eq!(now, val.to_datetime_optional().unwrap().unwrap());
     }
 
     #[derive(Debug)]
