@@ -32,32 +32,59 @@ impl Error for DataStoreError {}
 /// the value as the desired type. An error will be returned if the column does not exist or the
 /// data cannot be decoded as the requested type.
 pub trait DataVal: Send + Sync {
-    /// Attempts to decode the value as a [`bool`].
+    /// For nonnull DB columns. Attempts to decode the value as a [`bool`].
     fn to_bool(self) -> Result<bool, DataStoreError>;
 
-    /// Attempts to decode the value as a [`DateTime<Utc>`].
+    /// For nullable DB columns. Attempts to decode the value as a [`Option<bool>`].
+    fn to_bool_optional(self) -> Result<Option<bool>, DataStoreError>;
+
+    /// For nonnull DB columns. Attempts to decode the value as a [`DateTime<Utc>`].
     fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError>;
 
-    /// Attempts to decode the value as a [`i8`].
+    /// For nullable DB columns. Attempts to decode the value as a [`Option<DateTime<Utc>>`].
+    fn to_datetime_optional(self) -> Result<Option<DateTime<Utc>>, DataStoreError>;
+
+    /// For nonnull DB columns. Attempts to decode the value as a [`i8`].
     fn to_i8(self) -> Result<i8, DataStoreError>;
 
-    /// Attempts to decode the value as a [`i16`].
+    /// For nullable DB columns. Attempts to decode the value as a [`Option<i8>`].
+    fn to_i8_optional(self) -> Result<Option<i8>, DataStoreError>;
+
+    /// For nonnull DB columns. Attempts to decode the value as a [`i16`].
     fn to_i16(self) -> Result<i16, DataStoreError>;
 
-    /// Attempts to decode the value as a [`i32`].
+    /// For nullable DB columns. Attempts to decode the value as a [`Option<i16>`].
+    fn to_i16_optional(self) -> Result<Option<i16>, DataStoreError>;
+
+    /// For nonnull DB columns. Attempts to decode the value as a [`i32`].
     fn to_i32(self) -> Result<i32, DataStoreError>;
 
-    /// Attempts to decode the value as a [`i64`].
+    /// For nullable DB columns. Attempts to decode the value as a [`Option<i32>`].
+    fn to_i32_optional(self) -> Result<Option<i32>, DataStoreError>;
+
+    /// For nonnull DB columns. Attempts to decode the value as a [`i64`].
     fn to_i64(self) -> Result<i64, DataStoreError>;
 
-    /// Attempts to decode the value as a [`f32`].
+    /// For nullable DB columns. Attempts to decode the value as a [`Option<i64>`].
+    fn to_i64_optional(self) -> Result<Option<i64>, DataStoreError>;
+
+    /// For nonnull DB columns. Attempts to decode the value as a [`f32`].
     fn to_f32(self) -> Result<f32, DataStoreError>;
 
-    /// Attempts to decode the value as a [`f64`].
+    /// For nullable DB columns. Attempts to decode the value as a [`Option<f32>`].
+    fn to_f32_optional(self) -> Result<Option<f32>, DataStoreError>;
+
+    /// For nonnull DB columns. Attempts to decode the value as a [`f64`].
     fn to_f64(self) -> Result<f64, DataStoreError>;
 
-    /// Attempts to decode the value as a [`String`].
+    /// For nullable DB columns. Attempts to decode the value as a [`Option<f64>`].
+    fn to_f64_optional(self) -> Result<Option<f64>, DataStoreError>;
+
+    /// For nonnull DB columns. Attempts to decode the value as a [`String`].
     fn to_string(self) -> Result<String, DataStoreError>;
+
+    /// For nullable DB columns. Attempts to decode the value as a [`Option<String>`].
+    fn to_string_optional(self) -> Result<Option<String>, DataStoreError>;
 }
 
 /// Abstraction representing a single row retrieved from a data store

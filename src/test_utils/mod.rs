@@ -16,12 +16,18 @@ impl Display for TestError {
 }
 impl Error for TestError {}
 
+fn generate_error() -> DataStoreError {
+    DataStoreError::from(Box::new(TestError) as Box<dyn std::error::Error + Send + Sync>)
+}
+
 /// Implementation of [`DataVal`] that can be configured to return mock data.
 /// Each field is optional, and the various implementations of the `DataVal` methods will attempt to read from the corresponding field.
 /// If a field is populated, its value is returned. If it is not, an instance of [`TestError`] is generated and returned.
 #[derive(Debug)]
 pub struct TestVal {
+    pub is_nullable: bool,
     pub test_bool: Option<bool>,
+    pub test_datetime: Option<DateTime<Utc>>,
     pub test_i8: Option<i8>,
     pub test_i16: Option<i16>,
     pub test_i32: Option<i32>,
@@ -29,12 +35,12 @@ pub struct TestVal {
     pub test_f32: Option<f32>,
     pub test_f64: Option<f64>,
     pub test_string: Option<String>,
-    pub test_datetime: Option<DateTime<Utc>>,
 }
 impl TestVal {
     /// Convenience method for generating an instance of [`TestVal`] with all fields set to [`None`].
     pub fn new() -> Self {
         Self {
+            is_nullable: true,
             test_bool: None,
             test_datetime: None,
             test_f32: None,
@@ -48,9 +54,15 @@ impl TestVal {
     }
 
     fn translate<T>(op: Option<T>) -> Result<T, DataStoreError> {
-        op.ok_or(DataStoreError::from(
-            Box::new(TestError) as Box<dyn std::error::Error + Send + Sync>
-        ))
+        op.ok_or_else(generate_error)
+    }
+
+    fn translate_optional<T>(&self, op: Option<T>) -> Result<Option<T>, DataStoreError> {
+        if self.is_nullable || op.is_some() {
+            Ok(op)
+        } else {
+            Err(generate_error())
+        }
     }
 }
 impl Default for TestVal {
@@ -63,41 +75,79 @@ impl DataVal for TestVal {
         Self::translate(self.test_bool)
     }
 
+    fn to_bool_optional(self) -> Result<Option<bool>, DataStoreError> {
+        self.translate_optional(self.test_bool)
+    }
+
+    fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError> {
+        Self::translate(self.test_datetime)
+    }
+
+    fn to_datetime_optional(self) -> Result<Option<DateTime<Utc>>, DataStoreError> {
+        self.translate_optional(self.test_datetime)
+    }
+
     fn to_i8(self) -> Result<i8, DataStoreError> {
         Self::translate(self.test_i8)
+    }
+
+    fn to_i8_optional(self) -> Result<Option<i8>, DataStoreError> {
+        self.translate_optional(self.test_i8)
     }
 
     fn to_i16(self) -> Result<i16, DataStoreError> {
         Self::translate(self.test_i16)
     }
 
+    fn to_i16_optional(self) -> Result<Option<i16>, DataStoreError> {
+        self.translate_optional(self.test_i16)
+    }
+
     fn to_i32(self) -> Result<i32, DataStoreError> {
         Self::translate(self.test_i32)
+    }
+
+    fn to_i32_optional(self) -> Result<Option<i32>, DataStoreError> {
+        self.translate_optional(self.test_i32)
     }
 
     fn to_i64(self) -> Result<i64, DataStoreError> {
         Self::translate(self.test_i64)
     }
 
+    fn to_i64_optional(self) -> Result<Option<i64>, DataStoreError> {
+        self.translate_optional(self.test_i64)
+    }
+
     fn to_f32(self) -> Result<f32, DataStoreError> {
         Self::translate(self.test_f32)
+    }
+
+    fn to_f32_optional(self) -> Result<Option<f32>, DataStoreError> {
+        self.translate_optional(self.test_f32)
     }
 
     fn to_f64(self) -> Result<f64, DataStoreError> {
         Self::translate(self.test_f64)
     }
 
+    fn to_f64_optional(self) -> Result<Option<f64>, DataStoreError> {
+        self.translate_optional(self.test_f64)
+    }
+
     fn to_string(self) -> Result<String, DataStoreError> {
         Self::translate(self.test_string)
     }
 
-    fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError> {
-        Self::translate(self.test_datetime)
+    fn to_string_optional(self) -> Result<Option<String>, DataStoreError> {
+        let local = self.test_string.clone();
+        self.translate_optional(local)
     }
 }
 impl PartialEq for TestVal {
     fn eq(&self, other: &Self) -> bool {
-        self.test_bool == other.test_bool
+        self.is_nullable == other.is_nullable
+            && self.test_bool == other.test_bool
             && self.test_datetime == other.test_datetime
             && self.test_f32 == other.test_f32
             && self.test_f64 == other.test_f64
