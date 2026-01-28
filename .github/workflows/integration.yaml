@@ -17,3 +17,15 @@ jobs:
       pull-requests: write
     with:
       references-internal-git-repo: true
+
+  deploy-docs:
+    needs: run-tests-and-coverage
+    if: ${{ github.event_name == 'push' }}
+    uses: fermi-ad/.github/.github/workflows/deploy-rust-docs.yaml@3e98f98790694d1694d754d1eae183ce745d342d
+    secrets: inherit 
+    permissions:
+      contents: write
+      id-token: write
+      pages: write
+    with:
+      references-internal-git-repo: true
