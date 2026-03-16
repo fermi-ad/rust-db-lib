@@ -13,7 +13,11 @@ use std::{
 pub mod postgres;
 
 /// A collection of prebuilt implementations of the traits in this library that are useful for unit tests.
-pub mod test_utils;
+#[cfg(any(feature = "testing-utils", test))]
+pub mod testing_utils;
+
+#[cfg(test)]
+mod tests;
 
 /// Custom error type for [`DataStore`] operations
 #[derive(Debug)]
@@ -150,30 +154,4 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync {
         &self,
         parameterized_query: ParameterizedQuery,
     ) -> Result<Vec<U>, DataStoreError>;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_display_datastore_error() {
-        let error = DataStoreError {
-            details: "Test error".to_string(),
-        };
-        assert_eq!(format!("{}", error), "DataStoreError: Test error");
-    }
-
-    #[test]
-    fn test_parameterized_query_new_and_bind() {
-        let mut param_query =
-            ParameterizedQuery::new("SELECT * FROM table WHERE id = $1".to_string());
-        assert_eq!(param_query.statement, "SELECT * FROM table WHERE id = $1");
-        assert!(param_query.bindings.is_empty());
-
-        let test_param = QueryParameter::I32(42);
-        param_query.bind(test_param.clone());
-        assert_eq!(param_query.bindings.len(), 1);
-        assert_eq!(param_query.bindings[0], test_param);
-    }
 }

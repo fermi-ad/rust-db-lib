@@ -18,5 +18,13 @@ For this lib to operate successfully, the following environment variables must b
 - `DATABASE_PASS` - The password for the desired user.
 - `DATABASE_NAME` - The name of the database being connected to, e.g. `adbs`
 
+## Features
+The following features may be added when referencing this library in your `Cargo.toml`.
+
+#### `testing-utils`
+Example: `rust-db-lib = { version = 5.0.0, features = ["testing-utils"] }`
+
+This feature enables the `testing_utils` module, which exposes structures that you may find useful when testing code that depends on this library.
+
 ## Docs
 The Rust documentation and a getting-started guide can be found [here](https://doc.rust-lang.org/book/title-page.html).
