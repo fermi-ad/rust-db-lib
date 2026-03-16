@@ -1,3 +1,7 @@
+//! Postgres Module
+//!
+//! Contains implementations of the core abstractions designed to interact with a PostgreSQL database instance.
+
 use super::{DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery, QueryParameter};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
