@@ -19,8 +19,11 @@ pub mod testing_utils;
 #[cfg(test)]
 mod tests;
 
+/// Alias for a dynamically-dispatched [`Error`] instance.
+type BoxedError = Box<dyn Error + Send + Sync + 'static>;
+
 /// Custom error type for [`DataStore`] operations
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DataStoreError {
     details: String,
 }
@@ -30,6 +33,13 @@ impl Display for DataStoreError {
     }
 }
 impl Error for DataStoreError {}
+impl From<BoxedError> for DataStoreError {
+    fn from(err: BoxedError) -> Self {
+        Self {
+            details: format!("{:?}", err),
+        }
+    }
+}
 
 /// Represents the value stored in a database column. In this intermediate state,
 /// the exact type of the data is unknown. Calling one of the trait methods will attempt to decode
@@ -145,7 +155,7 @@ impl ParameterizedQuery {
 /// Abstraction for a data store capable of executing queries
 #[async_trait]
 pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync {
-    /// Executes a basic SQL statement. If any user input is required, use [`init_parameterized_query`](Self::init_parameterized_query)
+    /// Executes a basic SQL statement. If any user input is required, use [`execute_parameterized_query`](Self::execute_parameterized_query)
     async fn execute_query(&self, query: &str) -> Result<Vec<U>, DataStoreError>;
 
     /// Executes a fully constructed parameterized query.

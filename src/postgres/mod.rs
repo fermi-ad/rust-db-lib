@@ -2,172 +2,102 @@
 //!
 //! Contains implementations of the core abstractions designed to interact with a PostgreSQL database instance.
 
-use super::{DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery, QueryParameter};
+use super::{
+    BoxedError, DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery, QueryParameter,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use rust_env_var_lib::env_var;
 use sqlx::{
-    Decode, Error, Postgres, Row, Value, ValueRef,
-    postgres::{PgArguments, PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgValue, PgValueRef},
+    Decode, Postgres, Row, Value, ValueRef,
+    postgres::{PgArguments, PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgValue},
     query::Query,
 };
 use std::time::Duration;
-use tracing::error;
-
-const FAILED_CONVERSION_MSG: &str = "Invalid data conversion. See error log for details";
-impl From<Box<dyn std::error::Error + Send + Sync>> for DataStoreError {
-    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
-        error!("{:?}", err);
-        Self {
-            details: String::from(FAILED_CONVERSION_MSG),
-        }
-    }
-}
-const GENERIC_ERR_MSG: &str =
-    "An error occurred while interacting with the database. See error log for details";
-impl From<Error> for DataStoreError {
-    fn from(err: Error) -> Self {
-        error!("{:?}", err);
-        Self {
-            details: String::from(GENERIC_ERR_MSG),
-        }
-    }
-}
 
 /// Postgres implementation of the [`DataVal`] trait.
 pub struct PostgresDataVal {
     column_data: Result<PgValue, DataStoreError>,
 }
 impl PostgresDataVal {
-    fn decode<'a, T: Decode<'a, Postgres>>(value: PgValueRef<'a>) -> Result<T, DataStoreError> {
-        T::decode(value).map_err(DataStoreError::from)
+    fn translate_column_data<'a, T: Decode<'a, Postgres>>(&'a self) -> Result<T, DataStoreError> {
+        match self.column_data.as_ref() {
+            Ok(value) => T::decode(value.as_ref()).map_err(DataStoreError::from),
+            Err(err) => Err(err.clone()),
+        }
     }
 }
 impl DataVal for PostgresDataVal {
     fn to_bool(self) -> Result<bool, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_bool_optional(self) -> Result<Option<bool>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_datetime(self) -> Result<DateTime<Utc>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_datetime_optional(self) -> Result<Option<DateTime<Utc>>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_i8(self) -> Result<i8, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_i8_optional(self) -> Result<Option<i8>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_i16(self) -> Result<i16, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_i16_optional(self) -> Result<Option<i16>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_i32(self) -> Result<i32, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_i32_optional(self) -> Result<Option<i32>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_i64(self) -> Result<i64, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_i64_optional(self) -> Result<Option<i64>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_f32(self) -> Result<f32, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_f32_optional(self) -> Result<Option<f32>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_f64(self) -> Result<f64, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_f64_optional(self) -> Result<Option<f64>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_string(self) -> Result<String, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 
     fn to_string_optional(self) -> Result<Option<String>, DataStoreError> {
-        match self.column_data {
-            Ok(value) => Self::decode(value.as_ref()),
-            Err(err) => Err(err),
-        }
+        self.translate_column_data()
     }
 }
 
@@ -186,7 +116,7 @@ impl DataRow<PostgresDataVal> for PostgresDataRow {
     fn get(&self, column_name: &str) -> PostgresDataVal {
         let column_data = match self.row.try_get_raw(column_name) {
             Ok(val) => Ok(ValueRef::to_owned(&val)),
-            Err(err) => Err(DataStoreError::from(err)),
+            Err(err) => Err(DataStoreError::from(Box::new(err) as BoxedError)),
         };
         PostgresDataVal { column_data }
     }
@@ -198,22 +128,14 @@ pub struct PostgresDataStore {
 }
 impl PostgresDataStore {
     async fn establish_connection_pool() -> PgPool {
-        let host: String = env_var::get("DATABASE_HOST")
-            .to_option()
-            .expect("DATABASE_HOST must be set");
+        let host: String = env_var::expect("DATABASE_HOST");
 
-        let port = env_var::get("DATABASE_PORT").or(5432_u16);
+        let port = env_var::get("DATABASE_PORT").or(5432);
 
-        let username: String = env_var::get("DATABASE_USER")
-            .to_option()
-            .expect("DATABASE_USER must be set");
-        let password: String = env_var::get("DATABASE_PASS")
-            .to_option()
-            .expect("DATABASE_PASS must be set");
+        let username: String = env_var::expect("DATABASE_USER");
+        let password: String = env_var::expect("DATABASE_PASS");
 
-        let db_name: String = env_var::get("DATABASE_NAME")
-            .to_option()
-            .expect("DATABASE_NAME must be set");
+        let db_name: String = env_var::expect("DATABASE_NAME");
 
         let connection_config = PgConnectOptions::new()
             .host(host.as_str())
@@ -245,7 +167,7 @@ impl PostgresDataStore {
         let query_result = query.fetch_all(&self.db_pool).await;
         match query_result {
             Ok(rows) => Ok(rows.into_iter().map(PostgresDataRow::from).collect()),
-            Err(e) => Err(DataStoreError::from(e)),
+            Err(e) => Err(DataStoreError::from(Box::new(e) as BoxedError)),
         }
     }
 }
