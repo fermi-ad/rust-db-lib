@@ -10,15 +10,11 @@ testing-utils = []
 [dependencies]
 async-trait = "0.1.89"
 chrono = "0.4.44"
-rust-env-var-lib = { git = "https://github.com/fermi-ad/rust-env-var-lib.git", tag = "v1.1.0" }
+rust-env-var-lib = { git = "https://github.com/fermi-ad/rust-env-var-lib.git", tag = "v1.2.0" }
 sqlx = { version = "0.8.6", features = [ "chrono", "postgres", "runtime-tokio", "tls-native-tls" ] } 
-tracing = "0.1.44"
 
 [dev-dependencies]
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread"] }
-
-[profile.release]
-lto = true
 
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"
