@@ -204,7 +204,7 @@ fn test_val_to_datetime() {
 
     let mut val = TestVal::new();
     let now = Utc::now();
-    val.test_datetime = Some(now.clone());
+    val.test_datetime = Some(now);
     assert_eq!(now, val.to_datetime().unwrap());
 }
 
@@ -219,7 +219,7 @@ fn test_val_to_datetime_optional() {
 
     let mut val = TestVal::new();
     let now = Utc::now();
-    val.test_datetime = Some(now.clone());
+    val.test_datetime = Some(now);
     assert_eq!(now, val.to_datetime_optional().unwrap().unwrap());
 }
 
