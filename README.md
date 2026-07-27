@@ -22,7 +22,7 @@ For this lib to operate successfully, the following environment variables must b
 The following features may be added when referencing this library in your `Cargo.toml`.
 
 #### `testing-utils`
-Example: `rust-db-lib = { version = X.Y.Z, features = ["testing-utils"] }`
+Example: `rust-db-lib = { version = "6", features = ["testing-utils"] }`
 
 This feature enables the `testing_utils` module, which exposes structures that you may find useful when testing code that depends on this library.
 

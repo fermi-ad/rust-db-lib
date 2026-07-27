@@ -223,7 +223,7 @@ fn test_val_to_datetime_optional() {
     assert_eq!(now, val.to_datetime_optional().unwrap().unwrap());
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct TestRow {
     pub data: String,
 }
@@ -232,18 +232,6 @@ impl DataRow<TestVal> for TestRow {
         let mut val = TestVal::new();
         val.test_string = Some(self.data.clone());
         val
-    }
-}
-impl Clone for TestRow {
-    fn clone(&self) -> Self {
-        Self {
-            data: self.data.clone(),
-        }
-    }
-}
-impl PartialEq for TestRow {
-    fn eq(&self, other: &Self) -> bool {
-        self.data == other.data
     }
 }
 
