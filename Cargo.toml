@@ -9,7 +9,6 @@ testing-utils = []
 
 [dependencies]
 chrono = "0.4"
-rust-env-var-lib = { git = "https://github.com/fermi-ad/rust-env-var-lib.git", tag = "v1.2.0" }
 sqlx = { version = "0.9", features = [ "chrono", "postgres", "runtime-tokio", "tls-rustls-aws-lc-rs" ] }
 
 [dev-dependencies]

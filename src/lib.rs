@@ -18,9 +18,6 @@ pub mod testing_utils;
 #[cfg(test)]
 mod tests;
 
-/// Alias for a dynamically-dispatched [`Error`] instance.
-type BoxedError = Box<dyn Error + Send + Sync + 'static>;
-
 /// Custom error type for [`DataStore`] operations
 #[derive(Clone, Debug)]
 pub struct DataStoreError {
@@ -32,13 +29,6 @@ impl Display for DataStoreError {
     }
 }
 impl Error for DataStoreError {}
-impl From<BoxedError> for DataStoreError {
-    fn from(err: BoxedError) -> Self {
-        Self {
-            details: format!("{:?}", err),
-        }
-    }
-}
 
 /// Represents the value stored in a database column. In this intermediate state,
 /// the exact type of the data is unknown. Calling one of the trait methods will attempt to decode
@@ -109,15 +99,15 @@ pub trait DataRow<T: DataVal>: Send + Sync {
 /// Represents a single parameter to be bound to a parameterized query.
 #[derive(Clone, Debug, PartialEq)]
 pub enum QueryParameter {
-    BOOL(bool),
-    DATETIME(DateTime<Utc>),
+    Bool(bool),
+    DateTime(DateTime<Utc>),
     I8(i8),
     I16(i16),
     I32(i32),
     I64(i64),
     F32(f32),
     F64(f64),
-    STR(String),
+    Str(String),
 }
 
 /// Abstraction representing a parameterized query. Exposes a method for binding parameters to the query statement.

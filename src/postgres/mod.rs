@@ -2,16 +2,49 @@
 //!
 //! Contains implementations of the core abstractions designed to interact with a PostgreSQL database instance.
 
-use super::{
-    BoxedError, DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery, QueryParameter,
-};
+use super::{DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery, QueryParameter};
 use chrono::{DateTime, Utc};
-use rust_env_var_lib::env_var;
 use sqlx::{
-    Decode, Postgres, Row, Value, ValueRef,
-    postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgValue},
+    Decode, Error, Postgres, Row, Value, ValueRef,
+    postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgSslMode, PgValue},
 };
 use std::time::Duration;
+
+impl From<Error> for DataStoreError {
+    fn from(value: Error) -> Self {
+        DataStoreError {
+            details: format!("{value:?}"),
+        }
+    }
+}
+
+pub enum SslMode {
+    Prefer,
+    Require,
+    VerifyCa,
+    VerifyFull,
+}
+impl From<SslMode> for PgSslMode {
+    fn from(value: SslMode) -> Self {
+        match value {
+            SslMode::Prefer => PgSslMode::Prefer,
+            SslMode::Require => PgSslMode::Require,
+            SslMode::VerifyCa => PgSslMode::VerifyCa,
+            SslMode::VerifyFull => PgSslMode::VerifyFull,
+        }
+    }
+}
+
+pub struct PostgresConfig {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub password: String,
+    pub db_name: String,
+    pub ssl_mode: SslMode,
+    pub max_connections: u32,
+    pub connection_timeout: Duration,
+}
 
 /// Postgres implementation of the [`DataVal`] trait.
 pub struct PostgresDataVal {
@@ -20,7 +53,9 @@ pub struct PostgresDataVal {
 impl PostgresDataVal {
     fn translate_column_data<'a, T: Decode<'a, Postgres>>(&'a self) -> Result<T, DataStoreError> {
         match self.column_data.as_ref() {
-            Ok(value) => T::decode(value.as_ref()).map_err(DataStoreError::from),
+            Ok(value) => T::decode(value.as_ref()).map_err(|e| DataStoreError {
+                details: format!("{e:?}"),
+            }),
             Err(err) => Err(err.clone()),
         }
     }
@@ -114,7 +149,7 @@ impl DataRow<PostgresDataVal> for PostgresDataRow {
     fn get(&self, column_name: &str) -> PostgresDataVal {
         let column_data = match self.row.try_get_raw(column_name) {
             Ok(val) => Ok(ValueRef::to_owned(&val)),
-            Err(err) => Err(DataStoreError::from(Box::new(err) as BoxedError)),
+            Err(err) => Err(DataStoreError::from(err)),
         };
         PostgresDataVal { column_data }
     }
@@ -126,37 +161,28 @@ pub struct PostgresDataStore {
     db_pool: PgPool,
 }
 impl PostgresDataStore {
-    async fn establish_connection_pool() -> PgPool {
-        let host: String = env_var::expect("DATABASE_HOST");
-
-        let port = env_var::get("DATABASE_PORT").or(5432);
-
-        let username: String = env_var::expect("DATABASE_USER");
-        let password: String = env_var::expect("DATABASE_PASS");
-
-        let db_name: String = env_var::expect("DATABASE_NAME");
-
+    async fn establish_connection_pool(config: PostgresConfig) -> Result<PgPool, Error> {
         let connection_config = PgConnectOptions::new()
-            .host(host.as_str())
-            .port(port)
-            .username(username.as_str())
-            .password(password.as_str())
-            .database(db_name.as_str())
-            .ssl_mode(sqlx::postgres::PgSslMode::Require);
+            .host(config.host.as_str())
+            .port(config.port)
+            .username(config.username.as_str())
+            .password(config.password.as_str())
+            .database(config.db_name.as_str())
+            .ssl_mode(PgSslMode::from(config.ssl_mode));
 
         PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
+            .max_connections(config.max_connections)
+            .acquire_timeout(config.connection_timeout)
             .connect_with(connection_config)
             .await
-            .expect("Failed to connect to database...")
     }
 
     /// Creates a new instance of the `PostgresDataStore` with an established connection pool.
-    pub async fn new() -> Self {
-        Self {
-            db_pool: Self::establish_connection_pool().await,
-        }
+    pub async fn new(config: PostgresConfig) -> Result<Self, DataStoreError> {
+        Self::establish_connection_pool(config)
+            .await
+            .map(|db_pool| Self { db_pool })
+            .map_err(DataStoreError::from)
     }
 }
 impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
@@ -168,7 +194,7 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             .fetch_all(&self.db_pool)
             .await
             .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
-            .map_err(|e| DataStoreError::from(Box::new(e) as BoxedError))
+            .map_err(DataStoreError::from)
     }
 
     async fn execute_parameterized_query(
@@ -178,21 +204,21 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
         let mut query_builder = sqlx::query(parameterized_query.statement);
         for parameter in parameterized_query.bindings {
             query_builder = match parameter {
-                QueryParameter::BOOL(val) => query_builder.bind(val),
-                QueryParameter::DATETIME(val) => query_builder.bind(val),
+                QueryParameter::Bool(val) => query_builder.bind(val),
+                QueryParameter::DateTime(val) => query_builder.bind(val),
                 QueryParameter::I8(val) => query_builder.bind(val),
                 QueryParameter::I16(val) => query_builder.bind(val),
                 QueryParameter::I32(val) => query_builder.bind(val),
                 QueryParameter::I64(val) => query_builder.bind(val),
                 QueryParameter::F32(val) => query_builder.bind(val),
                 QueryParameter::F64(val) => query_builder.bind(val),
-                QueryParameter::STR(val) => query_builder.bind(val),
+                QueryParameter::Str(val) => query_builder.bind(val),
             }
         }
         query_builder
             .fetch_all(&self.db_pool)
             .await
             .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
-            .map_err(|e| DataStoreError::from(Box::new(e) as BoxedError))
+            .map_err(DataStoreError::from)
     }
 }

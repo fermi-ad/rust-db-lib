@@ -21,7 +21,10 @@ impl Display for TestError {
 impl Error for TestError {}
 
 fn generate_error() -> DataStoreError {
-    DataStoreError::from(Box::new(TestError) as Box<dyn std::error::Error + Send + Sync>)
+    let err = TestError;
+    DataStoreError {
+        details: format!("{err:?}"),
+    }
 }
 
 /// Implementation of [`DataVal`] that can be configured to return mock data.

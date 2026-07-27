@@ -899,17 +899,8 @@ name = "rust-db-lib"
 version = "6.0.0"
 dependencies = [
  "chrono",
- "rust-env-var-lib",
  "sqlx",
  "tokio",
-]
-
-[[package]]
-name = "rust-env-var-lib"
-version = "1.2.0"
-source = "git+https://github.com/fermi-ad/rust-env-var-lib.git?tag=v1.2.0#e16b7318d57166589972a81470ccfad01a749967"
-dependencies = [
- "tracing",
 ]
 
 [[package]]
