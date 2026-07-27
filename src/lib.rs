@@ -2,7 +2,6 @@
 //! It defines traits for data values, data rows, parameterized queries, and data stores,
 //! along with a Postgres implementation and test utilities.
 
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::{
     error::Error,
@@ -129,7 +128,7 @@ pub enum QueryParameter {
 #[derive(Clone, Debug)]
 pub struct ParameterizedQuery {
     /// The SQL query statement with placeholders for parameterized data
-    pub statement: String,
+    pub statement: &'static str,
     /// The list of [`QueryParameter`]s to bind to the query statement
     pub bindings: Vec<QueryParameter>,
 }
@@ -139,7 +138,7 @@ impl ParameterizedQuery {
     /// It is expected that the query statement will have sequential placeholders for the parameterized data.
     /// Example: If passing 5 elements into the query, the query should contain `$1`, `$2`, `$3`, `$4`, and `$5`, and
     /// the bindings should have no fewer than 5 elements (any additional elements beyond 5 will be ignored).
-    pub fn new(query_statement: String) -> Self {
+    pub fn new(query_statement: &'static str) -> Self {
         Self {
             statement: query_statement,
             bindings: Vec::new(),
@@ -153,15 +152,17 @@ impl ParameterizedQuery {
 }
 
 /// Abstraction for a data store capable of executing queries
-#[async_trait]
 pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync {
     /// Executes a basic SQL statement. If any user input is required, use [`execute_parameterized_query`](Self::execute_parameterized_query)
-    async fn execute_query(&self, query: &str) -> Result<Vec<U>, DataStoreError>;
+    fn execute_query(
+        &self,
+        query: &'static str,
+    ) -> impl Future<Output = Result<Vec<U>, DataStoreError>>;
 
     /// Executes a fully constructed parameterized query.
     /// Values for each of the parameters must have been bound prior to calling this method.
-    async fn execute_parameterized_query(
+    fn execute_parameterized_query(
         &self,
         parameterized_query: ParameterizedQuery,
-    ) -> Result<Vec<U>, DataStoreError>;
+    ) -> impl Future<Output = Result<Vec<U>, DataStoreError>>;
 }

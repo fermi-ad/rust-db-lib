@@ -262,7 +262,7 @@ async fn test_data_store() {
     let expected = results[0].get("").to_string();
     assert_eq!("row1".to_string(), expected.unwrap());
 
-    let parameterized_query = ParameterizedQuery::new(String::new());
+    let parameterized_query = ParameterizedQuery::new("");
 
     let parameterized_results = store
         .execute_parameterized_query(parameterized_query)

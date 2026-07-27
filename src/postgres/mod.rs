@@ -5,13 +5,11 @@
 use super::{
     BoxedError, DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery, QueryParameter,
 };
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use rust_env_var_lib::env_var;
 use sqlx::{
     Decode, Postgres, Row, Value, ValueRef,
-    postgres::{PgArguments, PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgValue},
-    query::Query,
+    postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgValue},
 };
 use std::time::Duration;
 
@@ -123,6 +121,7 @@ impl DataRow<PostgresDataVal> for PostgresDataRow {
 }
 
 /// Postgres implementation of the [`DataStore`] trait
+#[derive(Clone)]
 pub struct PostgresDataStore {
     db_pool: PgPool,
 }
@@ -159,36 +158,24 @@ impl PostgresDataStore {
             db_pool: Self::establish_connection_pool().await,
         }
     }
-
-    async fn run_query<'a>(
-        &'a self,
-        query: Query<'a, Postgres, PgArguments>,
-    ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        let query_result = query.fetch_all(&self.db_pool).await;
-        match query_result {
-            Ok(rows) => Ok(rows.into_iter().map(PostgresDataRow::from).collect()),
-            Err(e) => Err(DataStoreError::from(Box::new(e) as BoxedError)),
-        }
-    }
 }
-impl Clone for PostgresDataStore {
-    fn clone(&self) -> Self {
-        Self {
-            db_pool: self.db_pool.clone(),
-        }
-    }
-}
-#[async_trait]
 impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
-    async fn execute_query(&self, query: &str) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        self.run_query(sqlx::query(query)).await
+    async fn execute_query(
+        &self,
+        query: &'static str,
+    ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
+        sqlx::query(query)
+            .fetch_all(&self.db_pool)
+            .await
+            .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
+            .map_err(|e| DataStoreError::from(Box::new(e) as BoxedError))
     }
 
     async fn execute_parameterized_query(
         &self,
         parameterized_query: ParameterizedQuery,
     ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        let mut query_builder = sqlx::query(parameterized_query.statement.as_str());
+        let mut query_builder = sqlx::query(parameterized_query.statement);
         for parameter in parameterized_query.bindings {
             query_builder = match parameter {
                 QueryParameter::BOOL(val) => query_builder.bind(val),
@@ -202,6 +189,10 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
                 QueryParameter::STR(val) => query_builder.bind(val),
             }
         }
-        self.run_query(query_builder).await
+        query_builder
+            .fetch_all(&self.db_pool)
+            .await
+            .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
+            .map_err(|e| DataStoreError::from(Box::new(e) as BoxedError))
     }
 }

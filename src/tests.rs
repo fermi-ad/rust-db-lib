@@ -10,7 +10,7 @@ fn test_display_datastore_error() {
 
 #[test]
 fn test_parameterized_query_new_and_bind() {
-    let mut param_query = ParameterizedQuery::new("SELECT * FROM table WHERE id = $1".to_string());
+    let mut param_query = ParameterizedQuery::new("SELECT * FROM table WHERE id = $1");
     assert_eq!(param_query.statement, "SELECT * FROM table WHERE id = $1");
     assert!(param_query.bindings.is_empty());
 
