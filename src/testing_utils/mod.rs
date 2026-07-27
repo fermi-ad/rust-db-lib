@@ -185,7 +185,7 @@ impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
     }
 }
 impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
-    async fn execute_query(&self, _: &str) -> Result<Vec<T>, DataStoreError> {
+    async fn execute_query(&self, _: &'static str) -> Result<Vec<T>, DataStoreError> {
         Ok(self.data.clone())
     }
 
