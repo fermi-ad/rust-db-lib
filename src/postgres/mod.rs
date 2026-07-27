@@ -18,10 +18,18 @@ impl From<Error> for DataStoreError {
     }
 }
 
+/// Controls whether and how TLS is used when connecting to the database.
 pub enum SslMode {
+    /// Attempt a TLS connection first; fall back to plaintext if the server does not support TLS.
+    /// Suitable for local development and environments without TLS configured.
     Prefer,
+    /// Require a TLS connection. The connection will fail if the server does not support TLS.
+    /// Server certificates are not verified.
     Require,
+    /// Require a TLS connection and verify that the server certificate is signed by a trusted CA.
     VerifyCa,
+    /// Require a TLS connection, verify the server certificate against a trusted CA,
+    /// and verify that the server hostname matches the certificate.
     VerifyFull,
 }
 impl From<SslMode> for PgSslMode {
@@ -35,15 +43,53 @@ impl From<SslMode> for PgSslMode {
     }
 }
 
+/// Configuration for establishing a [`PostgresDataStore`] connection pool.
+///
+/// Fields that are not specified will use the values from [`PostgresConfig::default()`].
+///
+/// # Example
+/// ```rust,ignore
+/// use rust_db_lib::postgres::{PostgresConfig, SslMode};
+///
+/// let config = PostgresConfig {
+///     host: "localhost".to_string(),
+///     username: "myuser".to_string(),
+///     password: "mypassword".to_string(),
+///     db_name: "mydb".to_string(),
+///     ..PostgresConfig::default()
+/// };
+/// ```
 pub struct PostgresConfig {
+    /// The hostname or IP address of the PostgreSQL server.
     pub host: String,
+    /// The port the PostgreSQL server is listening on. Defaults to `5432`.
     pub port: u16,
+    /// The username to authenticate with.
     pub username: String,
+    /// The password to authenticate with.
     pub password: String,
+    /// The name of the database to connect to.
     pub db_name: String,
+    /// The SSL mode to use for the connection. Defaults to [`SslMode::Require`].
     pub ssl_mode: SslMode,
+    /// The maximum number of connections to maintain in the pool. Defaults to `5`.
     pub max_connections: u32,
+    /// The maximum time to wait when acquiring a connection from the pool. Defaults to 10 seconds.
     pub connection_timeout: Duration,
+}
+impl Default for PostgresConfig {
+    fn default() -> Self {
+        Self {
+            host: String::new(),
+            port: 5432,
+            username: String::new(),
+            password: String::new(),
+            db_name: String::new(),
+            ssl_mode: SslMode::Require,
+            max_connections: 5,
+            connection_timeout: Duration::from_secs(10),
+        }
+    }
 }
 
 /// Postgres implementation of the [`DataVal`] trait.
@@ -155,13 +201,19 @@ impl DataRow<PostgresDataVal> for PostgresDataRow {
     }
 }
 
-/// Postgres implementation of the [`DataStore`] trait
+/// Postgres implementation of the [`DataStore`] trait.
+///
+/// Use [`PostgresDataStore::new()`] with a [`PostgresConfig`] to establish a connection pool.
 #[derive(Clone)]
 pub struct PostgresDataStore {
     db_pool: PgPool,
 }
 impl PostgresDataStore {
-    async fn establish_connection_pool(config: PostgresConfig) -> Result<PgPool, Error> {
+    /// Creates a new instance of [`PostgresDataStore`] with an established connection pool.
+    ///
+    /// Returns a [`DataStoreError`] if the connection pool cannot be established
+    /// (e.g. the server is unreachable, credentials are invalid, or the timeout is exceeded).
+    pub async fn new(config: PostgresConfig) -> Result<Self, DataStoreError> {
         let connection_config = PgConnectOptions::new()
             .host(config.host.as_str())
             .port(config.port)
@@ -174,12 +226,6 @@ impl PostgresDataStore {
             .max_connections(config.max_connections)
             .acquire_timeout(config.connection_timeout)
             .connect_with(connection_config)
-            .await
-    }
-
-    /// Creates a new instance of the `PostgresDataStore` with an established connection pool.
-    pub async fn new(config: PostgresConfig) -> Result<Self, DataStoreError> {
-        Self::establish_connection_pool(config)
             .await
             .map(|db_pool| Self { db_pool })
             .map_err(DataStoreError::from)
