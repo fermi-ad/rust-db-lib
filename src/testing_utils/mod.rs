@@ -3,6 +3,7 @@
 use super::{DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery};
 use chrono::{DateTime, Utc};
 use std::{
+    borrow::Cow,
     error::Error,
     fmt::{self, Display, Formatter},
 };
@@ -188,7 +189,10 @@ impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
     }
 }
 impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
-    async fn execute_query(&self, _: &'static str) -> Result<Vec<T>, DataStoreError> {
+    async fn execute_query(
+        &self,
+        _: impl Into<Cow<'static, str>> + Send,
+    ) -> Result<Vec<T>, DataStoreError> {
         Ok(self.data.clone())
     }
 

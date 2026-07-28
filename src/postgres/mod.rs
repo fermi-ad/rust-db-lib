@@ -8,7 +8,7 @@ use sqlx::{
     Decode, Error, Postgres, Row, Value, ValueRef,
     postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgSslMode, PgValue},
 };
-use std::time::Duration;
+use std::{borrow::Cow, time::Duration};
 
 impl From<Error> for DataStoreError {
     fn from(value: Error) -> Self {
@@ -234,9 +234,9 @@ impl PostgresDataStore {
 impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
     async fn execute_query(
         &self,
-        query: &'static str,
+        query: impl Into<Cow<'static, str>> + Send,
     ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        sqlx::query(query)
+        sqlx::query(sqlx::AssertSqlSafe(query.into()))
             .fetch_all(&self.db_pool)
             .await
             .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
@@ -247,7 +247,7 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
         &self,
         parameterized_query: ParameterizedQuery,
     ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        let mut query_builder = sqlx::query(parameterized_query.statement);
+        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(parameterized_query.statement));
         for parameter in parameterized_query.bindings {
             query_builder = match parameter {
                 QueryParameter::Bool(val) => query_builder.bind(val),

@@ -4,6 +4,7 @@
 
 use chrono::{DateTime, Utc};
 use std::{
+    borrow::Cow,
     error::Error,
     fmt::{self, Display, Formatter},
 };
@@ -110,32 +111,50 @@ pub enum QueryParameter {
     Str(String),
 }
 
-/// Abstraction representing a parameterized query. Exposes a method for binding parameters to the query statement.
+/// A parameterized SQL query with its bound values.
 ///
-/// It is expected that the query string will have sequential placeholders for the parameterized data.
-/// Example: If passing 5 elements into the query. the query should contain `$1`, `$2`, `$3`, `$4`, and `$5`, and
-/// the bindings should have no fewer than 5 elements (any additional elements beyond 5 will be ignored).
+/// The statement must use sequential placeholders (`$1`, `$2`, …) matching the order of [`bind`](Self::bind) calls.
+/// Any bindings beyond the number of placeholders in the statement are ignored.
+///
+/// The statement accepts either a `&'static str` (for SQL literals) or an owned [`String`]
+/// (for dynamically constructed queries); both convert via `.into()`.
 #[derive(Clone, Debug)]
 pub struct ParameterizedQuery {
-    /// The SQL query statement with placeholders for parameterized data
-    pub statement: &'static str,
-    /// The list of [`QueryParameter`]s to bind to the query statement
+    /// The SQL statement with sequential `$N` placeholders.
+    pub statement: Cow<'static, str>,
+    /// The values to bind, in placeholder order.
     pub bindings: Vec<QueryParameter>,
 }
 impl ParameterizedQuery {
-    /// Initializes a [`ParameterizedQuery`] with the provided query statement.
+    /// Creates a [`ParameterizedQuery`] from a SQL statement.
     ///
-    /// It is expected that the query statement will have sequential placeholders for the parameterized data.
-    /// Example: If passing 5 elements into the query, the query should contain `$1`, `$2`, `$3`, `$4`, and `$5`, and
-    /// the bindings should have no fewer than 5 elements (any additional elements beyond 5 will be ignored).
-    pub fn new(query_statement: &'static str) -> Self {
+    /// Accepts a `&'static str` literal or an owned [`String`] for dynamically built statements.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use rust_db_lib::ParameterizedQuery;
+    ///
+    /// // Static literal
+    /// let q = ParameterizedQuery::new("SELECT * FROM users WHERE active = $1");
+    ///
+    /// // Dynamically built
+    /// let ids = vec![1i32, 2, 3];
+    /// let placeholders: String = (1..=ids.len())
+    ///     .map(|i| format!("${i}"))
+    ///     .collect::<Vec<_>>()
+    ///     .join(", ");
+    /// let q = ParameterizedQuery::new(
+    ///     format!("SELECT * FROM users WHERE id IN ({placeholders})")
+    /// );
+    /// ```
+    pub fn new(query_statement: impl Into<Cow<'static, str>>) -> Self {
         Self {
-            statement: query_statement,
+            statement: query_statement.into(),
             bindings: Vec::new(),
         }
     }
 
-    /// Binds a [`QueryParameter`] to the query. Must be called in the order the parameters appear in the query string.
+    /// Binds a [`QueryParameter`] to the query in placeholder order.
     pub fn bind(&mut self, parameter: QueryParameter) {
         self.bindings.push(parameter);
     }
@@ -143,10 +162,11 @@ impl ParameterizedQuery {
 
 /// Abstraction for a data store capable of executing queries
 pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync {
-    /// Executes a basic SQL statement. If any user input is required, use [`execute_parameterized_query`](Self::execute_parameterized_query)
+    /// Executes a SQL statement with no bound parameters.
+    /// For queries with user input, use [`execute_parameterized_query`](Self::execute_parameterized_query).
     fn execute_query(
         &self,
-        query: &'static str,
+        query: impl Into<Cow<'static, str>> + Send,
     ) -> impl Future<Output = Result<Vec<U>, DataStoreError>>;
 
     /// Executes a fully constructed parameterized query.
