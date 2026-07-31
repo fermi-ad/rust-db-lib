@@ -35,7 +35,7 @@ impl Error for DataStoreError {}
 /// the exact type of the data is unknown. Calling one of the trait methods will attempt to decode
 /// the value as the desired type. An error will be returned if the column does not exist or the
 /// data cannot be decoded as the requested type.
-pub trait DataVal: Send + Sync {
+pub trait DataVal: Send + Sync + 'static {
     /// For nonnull DB columns. Attempts to decode the value as a [`bool`].
     fn to_bool(self) -> Result<bool, DataStoreError>;
 
@@ -92,7 +92,7 @@ pub trait DataVal: Send + Sync {
 }
 
 /// Abstraction representing a single row retrieved from a data store
-pub trait DataRow<T: DataVal>: Send + Sync {
+pub trait DataRow<T: DataVal>: Send + Sync + 'static {
     /// Generates an instance of [`DataVal`] wrapping the contents of the specified column
     fn get(&self, column_name: &str) -> T;
 }
@@ -161,18 +161,18 @@ impl ParameterizedQuery {
 }
 
 /// Abstraction for a data store capable of executing queries
-pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync {
+pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     /// Executes a SQL statement with no bound parameters.
     /// For queries with user input, use [`execute_parameterized_query`](Self::execute_parameterized_query).
     fn execute_query(
         &self,
         query: impl Into<Cow<'static, str>> + Send,
-    ) -> impl Future<Output = Result<Vec<U>, DataStoreError>>;
+    ) -> impl Future<Output = Result<Vec<U>, DataStoreError>> + Send;
 
     /// Executes a fully constructed parameterized query.
     /// Values for each of the parameters must have been bound prior to calling this method.
     fn execute_parameterized_query(
         &self,
         parameterized_query: ParameterizedQuery,
-    ) -> impl Future<Output = Result<Vec<U>, DataStoreError>>;
+    ) -> impl Future<Output = Result<Vec<U>, DataStoreError>> + Send;
 }
