@@ -1,9 +1,9 @@
 //! Rust DB Lib Testing Utilities
 
 use super::{DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery};
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::{
+    borrow::Cow,
     error::Error,
     fmt::{self, Display, Formatter},
 };
@@ -22,7 +22,10 @@ impl Display for TestError {
 impl Error for TestError {}
 
 fn generate_error() -> DataStoreError {
-    DataStoreError::from(Box::new(TestError) as Box<dyn std::error::Error + Send + Sync>)
+    let err = TestError;
+    DataStoreError {
+        details: format!("{err:?}"),
+    }
 }
 
 /// Implementation of [`DataVal`] that can be configured to return mock data.
@@ -185,9 +188,11 @@ impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
         Self { data }
     }
 }
-#[async_trait]
 impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
-    async fn execute_query(&self, _: &str) -> Result<Vec<T>, DataStoreError> {
+    async fn execute_query(
+        &self,
+        _: impl Into<Cow<'static, str>> + Send,
+    ) -> Result<Vec<T>, DataStoreError> {
         Ok(self.data.clone())
     }
 
