@@ -1,6 +1,7 @@
 //! Tests for the Rust DB Lib Testing Utilities Module
 
 use super::*;
+use crate::QueryParameter;
 
 #[test]
 fn test_val_to_bool() {
@@ -236,27 +237,67 @@ impl DataRow<TestVal> for TestRow {
 }
 
 #[tokio::test]
-async fn test_data_store() {
+async fn test_data_store_returns_stored_values() {
     let data1 = TestRow {
         data: "row1".to_string(),
     };
     let data2 = TestRow {
         data: "row2".to_string(),
     };
-    let store = TestDataStore::new(vec![data1, data2]);
+    let store = TestDataStore::new(vec![data1.clone(), data2.clone()]);
+    // Ensure that cloning the store preserves the data
     assert_eq!(store.data, store.clone().data);
-    let results = store.execute_query("SELECT * FROM dummy").await.unwrap();
-    assert_eq!(results.len(), 2);
-    let expected = results[0].get("").to_string();
-    assert_eq!("row1".to_string(), expected.unwrap());
 
-    let parameterized_query = ParameterizedQuery::new("");
+    let simple_results = store.execute_query("SELECT * FROM dummy").await.unwrap();
+    assert_eq!(simple_results.len(), 2);
+    assert_eq!(
+        simple_results[0].get("data").to_string().unwrap(),
+        data1.clone().data
+    );
+    assert_eq!(
+        simple_results[1].get("data").to_string().unwrap(),
+        data2.clone().data
+    );
 
+    let mut parameterized_query =
+        ParameterizedQuery::new("SELECT * FROM dummy WHERE id = $1 AND name = $2");
+    parameterized_query.bind(QueryParameter::I32(42));
+    parameterized_query.bind(QueryParameter::Str("row1".to_string()));
     let parameterized_results = store
-        .execute_parameterized_query(parameterized_query)
+        .execute_parameterized_query(parameterized_query.clone())
         .await
         .unwrap();
-    assert_eq!(parameterized_results, results);
+    assert_eq!(parameterized_results, simple_results);
+}
+
+#[tokio::test]
+async fn test_data_store_captures_queries() {
+    let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
+
+    let simple_query = "SELECT * FROM dummy";
+    store.execute_query(simple_query).await.unwrap();
+
+    let mut parameterized_query =
+        ParameterizedQuery::new("SELECT * FROM dummy WHERE id = $1 AND name = $2");
+    parameterized_query.bind(QueryParameter::I32(42));
+    parameterized_query.bind(QueryParameter::Str("row1".to_string()));
+    store
+        .execute_parameterized_query(parameterized_query.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.captured_operations(),
+        vec![
+            Operation::Query(simple_query.into()),
+            Operation::ParameterizedQuery(parameterized_query),
+        ]
+    );
+    // Ensure that cloning the store preserves the captured queries
+    assert_eq!(
+        store.clone().captured_operations(),
+        store.captured_operations()
+    );
 }
 
 #[test]
@@ -276,6 +317,10 @@ async fn test_data_store_transaction_empty_batch() {
     let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
     let result = store.execute_transaction(vec![]).await;
     assert!(result.is_ok());
+    assert_eq!(
+        store.captured_operations(),
+        vec![Operation::Transaction(vec![])]
+    );
 }
 
 #[tokio::test]
@@ -285,6 +330,12 @@ async fn test_data_store_transaction_with_queries() {
     q1.bind(super::super::QueryParameter::I32(1));
     let mut q2 = ParameterizedQuery::new("INSERT INTO t VALUES ($1)");
     q2.bind(super::super::QueryParameter::I32(2));
-    let result = store.execute_transaction(vec![q1, q2]).await;
+    let result = store
+        .execute_transaction(vec![q1.clone(), q2.clone()])
+        .await;
     assert!(result.is_ok());
+    assert_eq!(
+        store.captured_operations(),
+        vec![Operation::Transaction(vec![q1, q2])]
+    );
 }

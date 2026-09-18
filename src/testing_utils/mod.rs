@@ -6,6 +6,7 @@ use std::{
     borrow::Cow,
     error::Error,
     fmt::{self, Display, Formatter},
+    sync::Mutex,
 };
 
 #[cfg(test)]
@@ -176,34 +177,79 @@ impl PartialEq for TestVal {
     }
 }
 
+/// A single operation captured by a [`TestDataStore`], in the form it was passed to the store.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Operation {
+    /// A query passed to [`execute_query`](DataStore::execute_query).
+    Query(Cow<'static, str>),
+    /// A query passed to [`execute_parameterized_query`](DataStore::execute_parameterized_query).
+    ParameterizedQuery(ParameterizedQuery),
+    /// A batch of queries passed to [`execute_transaction`](DataStore::execute_transaction).
+    Transaction(Vec<ParameterizedQuery>),
+}
+
 /// Implementation of [`DataStore`] that can be used in test cases.
-/// This implementation does not actually connect to any database, but simply returns the data provided at construction time.
+///
+/// Note that TestDataStore does not implement a true database. It always returns the `data`
+/// provided at construction time, regardless of the query it was given. Do not use the
+/// returned rows to assert that a query was built correctly; use them only to test how calling
+/// code consumes/maps rows.
+///
+/// Every query passed to this store is recorded and can be inspected via
+/// [`captured_operations`](Self::captured_operations), which is the correct way to assert on query
+/// structure (statement text, bindings, etc.).
 #[derive(Debug)]
 pub struct TestDataStore<T: DataRow<TestVal> + Clone> {
-    pub data: Vec<T>,
+    data: Vec<T>,
+    operations: Mutex<Vec<Operation>>,
 }
 impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
     /// Convenience method for generating an instance of [`TestDataStore`] with the provided data.
     pub fn new(data: Vec<T>) -> Self {
-        Self { data }
+        Self {
+            data,
+            operations: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Returns the operations captured so far, in the order they were submitted.
+    /// This is the intended way to assert that calling code constructed the correct query;
+    /// [`data`](Self::data) is unconditional and will not reflect query content.
+    pub fn captured_operations(&self) -> Vec<Operation> {
+        self.operations.lock().unwrap().clone()
     }
 }
 impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
     async fn execute_query(
         &self,
-        _: impl Into<Cow<'static, str>> + Send,
+        query: impl Into<Cow<'static, str>> + Send,
     ) -> Result<Vec<T>, DataStoreError> {
+        self.operations
+            .lock()
+            .unwrap()
+            .push(Operation::Query(query.into()));
         Ok(self.data.clone())
     }
 
     async fn execute_parameterized_query(
         &self,
-        _: ParameterizedQuery,
+        parameterized_query: ParameterizedQuery,
     ) -> Result<Vec<T>, DataStoreError> {
+        self.operations
+            .lock()
+            .unwrap()
+            .push(Operation::ParameterizedQuery(parameterized_query));
         Ok(self.data.clone())
     }
 
-    async fn execute_transaction(&self, _: Vec<ParameterizedQuery>) -> Result<(), DataStoreError> {
+    async fn execute_transaction(
+        &self,
+        queries: Vec<ParameterizedQuery>,
+    ) -> Result<(), DataStoreError> {
+        self.operations
+            .lock()
+            .unwrap()
+            .push(Operation::Transaction(queries));
         Ok(())
     }
 }
@@ -211,6 +257,7 @@ impl<T: DataRow<TestVal> + Clone> Clone for TestDataStore<T> {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
+            operations: Mutex::new(self.operations.lock().unwrap().clone()),
         }
     }
 }

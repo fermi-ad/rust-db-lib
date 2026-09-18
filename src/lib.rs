@@ -118,7 +118,7 @@ pub enum QueryParameter {
 ///
 /// The statement accepts either a `&'static str` (for SQL literals) or an owned [`String`]
 /// (for dynamically constructed queries); both convert via `.into()`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ParameterizedQuery {
     /// The SQL statement with sequential `$N` placeholders.
     pub statement: Cow<'static, str>,
