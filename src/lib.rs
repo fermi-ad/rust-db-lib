@@ -179,7 +179,6 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     /// Executes a batch of parameterized queries in a single transaction.
     ///
     /// If any query fails, the transaction is rolled back and an error is returned.
-
     fn execute_transaction(
         &self,
         queries: Vec<ParameterizedQuery>,
