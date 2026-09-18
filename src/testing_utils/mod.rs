@@ -200,7 +200,7 @@ pub enum Operation {
 /// structure (statement text, bindings, etc.).
 #[derive(Debug)]
 pub struct TestDataStore<T: DataRow<TestVal> + Clone> {
-    pub data: Vec<T>,
+    data: Vec<T>,
     operations: Mutex<Vec<Operation>>,
 }
 impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
