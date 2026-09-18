@@ -237,7 +237,7 @@ impl DataRow<TestVal> for TestRow {
 }
 
 #[tokio::test]
-async fn test_data_store() {
+async fn test_data_store_returns_stored_values() {
     let data1 = TestRow {
         data: "row1".to_string(),
     };
@@ -248,9 +248,8 @@ async fn test_data_store() {
     // Ensure that cloning the store preserves the data
     assert_eq!(store.data, store.clone().data);
 
-    // Test that the store returns the expected rows for a simple query
-    let simple_query = "SELECT * FROM dummy";
-    let simple_results = store.execute_query(simple_query).await.unwrap();
+    // Execute a simple query and verify that the returned rows match the expected data
+    let simple_results = store.execute_query("SELECT * FROM dummy").await.unwrap();
     assert_eq!(simple_results.len(), 2);
     assert_eq!(
         simple_results[0].get("data").to_string().unwrap(),
@@ -261,7 +260,7 @@ async fn test_data_store() {
         data2.clone().data
     );
 
-    // Test that the store returns the same rows for a parameterized query as for a simple query
+    // Execute a parameterized query and verify that the returned rows match the expected data
     let mut parameterized_query =
         ParameterizedQuery::new("SELECT * FROM dummy WHERE id = $1 AND name = $2");
     parameterized_query.bind(QueryParameter::I32(42));
@@ -271,8 +270,24 @@ async fn test_data_store() {
         .await
         .unwrap();
     assert_eq!(parameterized_results, simple_results);
+}
 
-    // Test that the store captured the queries correctly
+#[tokio::test]
+async fn test_data_store_captures_queries() {
+    let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
+
+    let simple_query = "SELECT * FROM dummy";
+    store.execute_query(simple_query).await.unwrap();
+
+    let mut parameterized_query =
+        ParameterizedQuery::new("SELECT * FROM dummy WHERE id = $1 AND name = $2");
+    parameterized_query.bind(QueryParameter::I32(42));
+    parameterized_query.bind(QueryParameter::Str("row1".to_string()));
+    store
+        .execute_parameterized_query(parameterized_query.clone())
+        .await
+        .unwrap();
+
     assert_eq!(
         store.captured_queries(),
         vec![
@@ -280,7 +295,6 @@ async fn test_data_store() {
             CapturedQuery::ParameterizedQuery(parameterized_query),
         ]
     );
-    assert!(store.clone().captured_queries().len() == 2);
 }
 
 #[test]
