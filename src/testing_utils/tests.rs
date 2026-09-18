@@ -1,6 +1,7 @@
 //! Tests for the Rust DB Lib Testing Utilities Module
 
 use super::*;
+use crate::QueryParameter;
 
 #[test]
 fn test_val_to_bool() {
@@ -243,20 +244,43 @@ async fn test_data_store() {
     let data2 = TestRow {
         data: "row2".to_string(),
     };
-    let store = TestDataStore::new(vec![data1, data2]);
+    let store = TestDataStore::new(vec![data1.clone(), data2.clone()]);
+    // Ensure that cloning the store preserves the data
     assert_eq!(store.data, store.clone().data);
-    let results = store.execute_query("SELECT * FROM dummy").await.unwrap();
-    assert_eq!(results.len(), 2);
-    let expected = results[0].get("").to_string();
-    assert_eq!("row1".to_string(), expected.unwrap());
 
-    let parameterized_query = ParameterizedQuery::new("");
+    // Test that the store returns the expected rows for a simple query
+    let simple_query = "SELECT * FROM dummy";
+    let simple_results = store.execute_query(simple_query).await.unwrap();
+    assert_eq!(simple_results.len(), 2);
+    assert_eq!(
+        simple_results[0].get("data").to_string().unwrap(),
+        data1.clone().data
+    );
+    assert_eq!(
+        simple_results[1].get("data").to_string().unwrap(),
+        data2.clone().data
+    );
 
+    // Test that the store returns the same rows for a parameterized query as for a simple query
+    let mut parameterized_query =
+        ParameterizedQuery::new("SELECT * FROM dummy WHERE id = $1 AND name = $2");
+    parameterized_query.bind(QueryParameter::I32(42));
+    parameterized_query.bind(QueryParameter::Str("row1".to_string()));
     let parameterized_results = store
-        .execute_parameterized_query(parameterized_query)
+        .execute_parameterized_query(parameterized_query.clone())
         .await
         .unwrap();
-    assert_eq!(parameterized_results, results);
+    assert_eq!(parameterized_results, simple_results);
+
+    // Test that the store captured the queries correctly
+    assert_eq!(
+        store.captured_queries(),
+        vec![
+            CapturedQuery::Query(simple_query.into()),
+            CapturedQuery::ParameterizedQuery(parameterized_query),
+        ]
+    );
+    assert!(store.clone().captured_queries().len() == 2);
 }
 
 #[test]
