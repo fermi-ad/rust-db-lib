@@ -177,13 +177,15 @@ impl PartialEq for TestVal {
     }
 }
 
-/// A single query captured by a [`TestDataStore`], in the form it was passed to the store.
+/// A single operation captured by a [`TestDataStore`], in the form it was passed to the store.
 #[derive(Clone, Debug, PartialEq)]
-pub enum CapturedQuery {
+pub enum Operation {
     /// A query passed to [`execute_query`](DataStore::execute_query).
     Query(Cow<'static, str>),
     /// A query passed to [`execute_parameterized_query`](DataStore::execute_parameterized_query).
     ParameterizedQuery(ParameterizedQuery),
+    /// A batch of queries passed to [`execute_transaction`](DataStore::execute_transaction).
+    Transaction(Vec<ParameterizedQuery>),
 }
 
 /// Implementation of [`DataStore`] that can be used in test cases.
@@ -194,27 +196,27 @@ pub enum CapturedQuery {
 /// code consumes/maps rows.
 ///
 /// Every query passed to this store is recorded and can be inspected via
-/// [`captured_queries`](Self::captured_queries), which is the correct way to assert on query
+/// [`captured_operations`](Self::captured_operations), which is the correct way to assert on query
 /// structure (statement text, bindings, etc.).
 #[derive(Debug)]
 pub struct TestDataStore<T: DataRow<TestVal> + Clone> {
     pub data: Vec<T>,
-    queries: Mutex<Vec<CapturedQuery>>,
+    operations: Mutex<Vec<Operation>>,
 }
 impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
     /// Convenience method for generating an instance of [`TestDataStore`] with the provided data.
     pub fn new(data: Vec<T>) -> Self {
         Self {
             data,
-            queries: Mutex::new(Vec::new()),
+            operations: Mutex::new(Vec::new()),
         }
     }
 
-    /// Returns the queries captured so far, in the order they were submitted.
+    /// Returns the operations captured so far, in the order they were submitted.
     /// This is the intended way to assert that calling code constructed the correct query;
     /// [`data`](Self::data) is unconditional and will not reflect query content.
-    pub fn captured_queries(&self) -> Vec<CapturedQuery> {
-        self.queries.lock().unwrap().clone()
+    pub fn captured_operations(&self) -> Vec<Operation> {
+        self.operations.lock().unwrap().clone()
     }
 }
 impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
@@ -222,10 +224,10 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         &self,
         query: impl Into<Cow<'static, str>> + Send,
     ) -> Result<Vec<T>, DataStoreError> {
-        self.queries
+        self.operations
             .lock()
             .unwrap()
-            .push(CapturedQuery::Query(query.into()));
+            .push(Operation::Query(query.into()));
         Ok(self.data.clone())
     }
 
@@ -233,14 +235,21 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         &self,
         parameterized_query: ParameterizedQuery,
     ) -> Result<Vec<T>, DataStoreError> {
-        self.queries
+        self.operations
             .lock()
             .unwrap()
-            .push(CapturedQuery::ParameterizedQuery(parameterized_query));
+            .push(Operation::ParameterizedQuery(parameterized_query));
         Ok(self.data.clone())
     }
 
-    async fn execute_transaction(&self, _: Vec<ParameterizedQuery>) -> Result<(), DataStoreError> {
+    async fn execute_transaction(
+        &self,
+        queries: Vec<ParameterizedQuery>,
+    ) -> Result<(), DataStoreError> {
+        self.operations
+            .lock()
+            .unwrap()
+            .push(Operation::Transaction(queries));
         Ok(())
     }
 }
@@ -248,7 +257,7 @@ impl<T: DataRow<TestVal> + Clone> Clone for TestDataStore<T> {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
-            queries: Mutex::new(self.queries.lock().unwrap().clone()),
+            operations: Mutex::new(self.operations.lock().unwrap().clone()),
         }
     }
 }

@@ -287,14 +287,17 @@ async fn test_data_store_captures_queries() {
         .unwrap();
 
     assert_eq!(
-        store.captured_queries(),
+        store.captured_operations(),
         vec![
-            CapturedQuery::Query(simple_query.into()),
-            CapturedQuery::ParameterizedQuery(parameterized_query),
+            Operation::Query(simple_query.into()),
+            Operation::ParameterizedQuery(parameterized_query),
         ]
     );
     // Ensure that cloning the store preserves the captured queries
-    assert_eq!(store.clone().captured_queries(), store.captured_queries());
+    assert_eq!(
+        store.clone().captured_operations(),
+        store.captured_operations()
+    );
 }
 
 #[test]
@@ -314,6 +317,10 @@ async fn test_data_store_transaction_empty_batch() {
     let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
     let result = store.execute_transaction(vec![]).await;
     assert!(result.is_ok());
+    assert_eq!(
+        store.captured_operations(),
+        vec![Operation::Transaction(vec![])]
+    );
 }
 
 #[tokio::test]
@@ -323,6 +330,12 @@ async fn test_data_store_transaction_with_queries() {
     q1.bind(super::super::QueryParameter::I32(1));
     let mut q2 = ParameterizedQuery::new("INSERT INTO t VALUES ($1)");
     q2.bind(super::super::QueryParameter::I32(2));
-    let result = store.execute_transaction(vec![q1, q2]).await;
+    let result = store
+        .execute_transaction(vec![q1.clone(), q2.clone()])
+        .await;
     assert!(result.is_ok());
+    assert_eq!(
+        store.captured_operations(),
+        vec![Operation::Transaction(vec![q1, q2])]
+    );
 }
