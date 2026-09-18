@@ -175,4 +175,13 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
         &self,
         parameterized_query: ParameterizedQuery,
     ) -> impl Future<Output = Result<Vec<U>, DataStoreError>> + Send;
+
+    /// Executes a batch of parameterized queries in a single transaction.
+    ///
+    /// If any query fails, the transaction is rolled back and an error is returned.
+
+    fn execute_transaction(
+        &self,
+        queries: Vec<ParameterizedQuery>,
+    ) -> impl Future<Output = Result<(), DataStoreError>> + Send;
 }

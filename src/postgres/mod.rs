@@ -267,4 +267,41 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
             .map_err(DataStoreError::from)
     }
+
+    async fn execute_transaction(
+        &self,
+        queries: Vec<ParameterizedQuery>,
+    ) -> Result<(), DataStoreError> {
+        let mut tx = self.db_pool.begin().await.map_err(DataStoreError::from)?;
+        for parameterized_query in queries {
+            let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(parameterized_query.statement));
+            for parameter in parameterized_query.bindings {
+                query_builder = match parameter {
+                    QueryParameter::Bool(val) => query_builder.bind(val),
+                    QueryParameter::DateTime(val) => query_builder.bind(val),
+                    QueryParameter::I8(val) => query_builder.bind(val),
+                    QueryParameter::I16(val) => query_builder.bind(val),
+                    QueryParameter::I32(val) => query_builder.bind(val),
+                    QueryParameter::I64(val) => query_builder.bind(val),
+                    QueryParameter::F32(val) => query_builder.bind(val),
+                    QueryParameter::F64(val) => query_builder.bind(val),
+                    QueryParameter::Str(val) => query_builder.bind(val),
+                }
+            }
+            if let Err(err) = query_builder.execute(&mut *tx).await {
+                let query_err = DataStoreError::from(err);
+                let details = match tx.rollback().await {
+                    Ok(()) => query_err.details,
+                    Err(rollback_err) => {
+                        format!(
+                            "{} (rollback also failed: {rollback_err:?})",
+                            query_err.details
+                        )
+                    }
+                };
+                return Err(DataStoreError { details });
+            }
+        }
+        tx.commit().await.map_err(DataStoreError::from)
+    }
 }

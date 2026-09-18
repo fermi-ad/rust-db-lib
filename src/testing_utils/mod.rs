@@ -202,6 +202,10 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
     ) -> Result<Vec<T>, DataStoreError> {
         Ok(self.data.clone())
     }
+
+    async fn execute_transaction(&self, _: Vec<ParameterizedQuery>) -> Result<(), DataStoreError> {
+        Ok(())
+    }
 }
 impl<T: DataRow<TestVal> + Clone> Clone for TestDataStore<T> {
     fn clone(&self) -> Self {

@@ -270,3 +270,21 @@ fn test_testval_default() {
     let val = TestVal::default();
     assert_eq!(val, TestVal::new());
 }
+
+#[tokio::test]
+async fn test_data_store_transaction_empty_batch() {
+    let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
+    let result = store.execute_transaction(vec![]).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_data_store_transaction_with_queries() {
+    let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
+    let mut q1 = ParameterizedQuery::new("INSERT INTO t VALUES ($1)");
+    q1.bind(super::super::QueryParameter::I32(1));
+    let mut q2 = ParameterizedQuery::new("INSERT INTO t VALUES ($1)");
+    q2.bind(super::super::QueryParameter::I32(2));
+    let result = store.execute_transaction(vec![q1, q2]).await;
+    assert!(result.is_ok());
+}
