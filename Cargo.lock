@@ -896,13 +896,7 @@ dependencies = [
 
 [[package]]
 name = "rust-db-lib"
-<<<<<<< HEAD
-version = "6.1.0"
-||||||| parent of 673c45c (Bump major version number)
-version = "6.0.0"
-=======
 version = "7.0.0"
->>>>>>> 673c45c (Bump major version number)
 dependencies = [
  "chrono",
  "sqlx",
