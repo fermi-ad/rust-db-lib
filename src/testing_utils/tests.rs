@@ -248,7 +248,6 @@ async fn test_data_store_returns_stored_values() {
     // Ensure that cloning the store preserves the data
     assert_eq!(store.data, store.clone().data);
 
-    // Execute a simple query and verify that the returned rows match the expected data
     let simple_results = store.execute_query("SELECT * FROM dummy").await.unwrap();
     assert_eq!(simple_results.len(), 2);
     assert_eq!(
@@ -260,7 +259,6 @@ async fn test_data_store_returns_stored_values() {
         data2.clone().data
     );
 
-    // Execute a parameterized query and verify that the returned rows match the expected data
     let mut parameterized_query =
         ParameterizedQuery::new("SELECT * FROM dummy WHERE id = $1 AND name = $2");
     parameterized_query.bind(QueryParameter::I32(42));
@@ -295,6 +293,8 @@ async fn test_data_store_captures_queries() {
             CapturedQuery::ParameterizedQuery(parameterized_query),
         ]
     );
+    // Ensure that cloning the store preserves the captured queries
+    assert_eq!(store.clone().captured_queries(), store.captured_queries());
 }
 
 #[test]
