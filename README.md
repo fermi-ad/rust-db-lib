@@ -1,5 +1,9 @@
 # rust-db-lib
+
+Check out the [latest documentation](https://fermi-ad.github.io/rust-db-lib/rust_db_lib/)
+
 A library for connecting to a database from a Rust app. It encapsulates DB connection logic and exposes access through a consistent interface, so changes to how services interact with the DB can be managed from one place.
+
 
 ## Interface
 The primary abstraction is the `DataStore<T: DataVal, U: DataRow<T>>` trait. See the rustdoc for full details.
@@ -38,6 +42,6 @@ let store = PostgresDataStore::new(config).await?;
 ## Features
 
 #### `testing-utils`
-`rust-db-lib = { version = "6", features = ["testing-utils"] }`
+`rust-db-lib = { git = "https://github.com/fermi-ad/rust-db-lib", tag = "vX.Y.Z", features = ["testing-utils"] }`
 
 Enables the `testing_utils` module with mock implementations useful for unit testing code that depends on this library.
