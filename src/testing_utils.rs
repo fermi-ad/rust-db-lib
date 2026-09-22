@@ -26,13 +26,15 @@ fn generate_error() -> DataStoreError {
 /// the corresponding field.
 ///
 /// Regular methods:
-/// If a field is populated, its value is returned. If it is not, an instance of [`TestError`] is generated
+/// If a field is populated, its value is returned. If it is not, an instance of [`DataStoreError`] is generated
 /// and returned.
 ///
 /// Methods ending with `_optional`:
 /// If a field is populated, its value is returned. If it is not, the [`is_nullable`](TestVal::is_nullable)
-/// field is checked. If the field is `true`, [`None`] is returned. Else, an instance of [`TestError`] is
+/// field is checked. If the field is `true`, [`None`] is returned. Else, an instance of [`DataStoreError`] is
 /// generated and returned.
+///
+/// `is_nullable` defaults to `false`.
 #[derive(Clone, Debug, Default)]
 pub struct TestVal {
     pub is_nullable: bool,
@@ -275,8 +277,7 @@ impl TestDataStore {
     }
 
     /// Returns the operations captured so far, in the order they were submitted.
-    /// This is the intended way to assert that calling code constructed the correct query;
-    /// [`data`](Self::data) is unconditional and will not reflect query content.
+    /// Use this to assert that calling code constructed the correct query.
     pub fn captured_operations(&self) -> Vec<Operation> {
         self.inner.operations.lock().unwrap().clone()
     }
