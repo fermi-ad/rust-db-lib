@@ -8,8 +8,10 @@ fn test_val_to_bool() {
     let err_val = TestVal::default();
     assert!(err_val.to_bool().is_err());
 
-    let mut val = TestVal::default();
-    val.test_bool = Some(true);
+    let val = TestVal {
+        test_bool: Some(true),
+        ..TestVal::default()
+    };
     assert!(val.to_bool().unwrap());
 }
 
@@ -36,8 +38,10 @@ fn test_val_to_i8() {
     let err_val = TestVal::default();
     assert!(err_val.to_i8().is_err());
 
-    let mut val = TestVal::default();
-    val.test_i8 = Some(0_i8);
+    let val = TestVal {
+        test_i8: Some(0_i8),
+        ..TestVal::default()
+    };
     assert_eq!(0_i8, val.to_i8().unwrap());
 }
 
@@ -64,8 +68,10 @@ fn test_val_to_i16() {
     let err_val = TestVal::default();
     assert!(err_val.to_i16().is_err());
 
-    let mut val = TestVal::default();
-    val.test_i16 = Some(0_i16);
+    let val = TestVal {
+        test_i16: Some(0_i16),
+        ..TestVal::default()
+    };
     assert_eq!(0_i16, val.to_i16().unwrap());
 }
 
@@ -92,8 +98,10 @@ fn test_val_to_i32() {
     let err_val = TestVal::default();
     assert!(err_val.to_i32().is_err());
 
-    let mut val = TestVal::default();
-    val.test_i32 = Some(0_i32);
+    let val = TestVal {
+        test_i32: Some(0_i32),
+        ..TestVal::default()
+    };
     assert_eq!(0_i32, val.to_i32().unwrap());
 }
 
@@ -120,8 +128,10 @@ fn test_val_to_i64() {
     let err_val = TestVal::default();
     assert!(err_val.to_i64().is_err());
 
-    let mut val = TestVal::default();
-    val.test_i64 = Some(0_i64);
+    let val = TestVal {
+        test_i64: Some(0_i64),
+        ..TestVal::default()
+    };
     assert_eq!(0_i64, val.to_i64().unwrap());
 }
 
@@ -148,8 +158,10 @@ fn test_val_to_f32() {
     let err_val = TestVal::default();
     assert!(err_val.to_f32().is_err());
 
-    let mut val = TestVal::default();
-    val.test_f32 = Some(0_f32);
+    let val = TestVal {
+        test_f32: Some(0_f32),
+        ..TestVal::default()
+    };
     assert_eq!(0_f32, val.to_f32().unwrap());
 }
 
@@ -176,8 +188,10 @@ fn test_val_to_f64() {
     let err_val = TestVal::default();
     assert!(err_val.to_f64().is_err());
 
-    let mut val = TestVal::default();
-    val.test_f64 = Some(0_f64);
+    let val = TestVal {
+        test_f64: Some(0_f64),
+        ..TestVal::default()
+    };
     assert_eq!(0_f64, val.to_f64().unwrap());
 }
 
@@ -204,8 +218,10 @@ fn test_val_to_string() {
     let err_val = TestVal::default();
     assert!(err_val.to_string().is_err());
 
-    let mut val = TestVal::default();
-    val.test_string = Some(String::default());
+    let val = TestVal {
+        test_string: Some(String::default()),
+        ..TestVal::default()
+    };
     assert_eq!(String::default(), val.to_string().unwrap());
 }
 
@@ -235,9 +251,11 @@ fn test_val_to_datetime() {
     let err_val = TestVal::default();
     assert!(err_val.to_datetime().is_err());
 
-    let mut val = TestVal::default();
     let now = Utc::now();
-    val.test_datetime = Some(now);
+    let val = TestVal {
+        test_datetime: Some(now),
+        ..TestVal::default()
+    };
     assert_eq!(now, val.to_datetime().unwrap());
 }
 
@@ -262,12 +280,21 @@ fn test_val_to_datetime_optional() {
 
 #[tokio::test]
 async fn test_data_store_returns_stored_values() {
-    let mut test_val = TestVal::default();
-    test_val.test_string = Some("row1".to_string());
-    let data1 = TestRow::new(HashMap::from([("data".to_string(), test_val.clone())]));
+    let data1 = TestRow::new(HashMap::from([(
+        "data".to_string(),
+        TestVal {
+            test_string: Some("row1".to_string()),
+            ..TestVal::default()
+        },
+    )]));
 
-    test_val.test_string = Some("row2".to_string());
-    let data2 = TestRow::new(HashMap::from([("data".to_string(), test_val)]));
+    let data2 = TestRow::new(HashMap::from([(
+        "data".to_string(),
+        TestVal {
+            test_string: Some("row2".to_string()),
+            ..TestVal::default()
+        },
+    )]));
 
     let store = TestDataStore::new(vec![data1.clone(), data2.clone()]);
 
