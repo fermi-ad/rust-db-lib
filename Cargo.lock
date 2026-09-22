@@ -897,7 +897,7 @@ dependencies = [
 
 [[package]]
 name = "rust-db-lib"
-version = "7.0.0"
+version = "8.0.0"
 dependencies = [
  "chrono",
  "sqlx",

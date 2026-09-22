@@ -225,7 +225,7 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     ///
     /// If `operation` returns `Ok`, the transaction is committed and the value returned.
     /// If `operation` returns `Err`, the transaction is rolled back and the error is wrapped
-    /// in [`TransactionError::Operation`]. Backend failures opening, committing, or rolling
+    /// in [`TransactionError::OperationError`]. Backend failures opening, committing, or rolling
     /// back the transaction are classified per [`TransactionError`], including
     /// [`TransactionError::Retryable`] for conflicts that may succeed if `operation` — including
     /// any reads it performed — is retried in full.
@@ -303,13 +303,13 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     }
 }
 
-fn transaction_error_to_datastore<E>(error: TransactionError<E>) -> DataStoreError {
+fn transaction_error_to_datastore<E: Display>(error: TransactionError<E>) -> DataStoreError {
     match error {
         TransactionError::Retryable => DataStoreError {
             details: "transaction conflict (retryable)".to_string(),
         },
-        TransactionError::OperationError(_) => DataStoreError {
-            details: "transaction operation failed".to_string(),
+        TransactionError::OperationError(error) => DataStoreError {
+            details: format!("transaction operation failed: {}", error),
         },
         TransactionError::DatabaseError(error) => error,
     }
