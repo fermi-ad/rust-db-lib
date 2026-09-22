@@ -160,27 +160,114 @@ impl ParameterizedQuery {
     }
 }
 
-/// Abstraction for a data store capable of executing queries
+/// A backend-neutral consistency guarantee requested for a transaction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TransactionPolicy {
+    /// An ordinary transaction with the backend's default consistency.
+    Default,
+    /// Serialize transactions requesting the same logical resource.
+    SerializeOn(Cow<'static, str>),
+}
+
+/// Failure opening or completing a transaction.
+#[derive(Clone, Debug)]
+pub enum TransactionError {
+    /// The transaction conflicted with concurrent work and may succeed if retried.
+    Retryable,
+    /// The backend cannot honor the requested policy.
+    UnsupportedPolicy,
+    /// Any other transaction failure.
+    Database(DataStoreError),
+}
+impl Display for TransactionError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Retryable => write!(f, "transaction conflict (retryable)"),
+            Self::UnsupportedPolicy => write!(f, "transaction policy is unsupported"),
+            Self::Database(error) => Display::fmt(error, f),
+        }
+    }
+}
+impl Error for TransactionError {}
+
+/// Operations available on an open transaction.
+pub trait DataStoreTransaction<T: DataVal, U: DataRow<T>>: Send {
+    /// Executes an unparameterized query within this transaction.
+    fn execute_query(
+        &mut self,
+        query: impl Into<Cow<'static, str>> + Send,
+    ) -> impl Future<Output = Result<Vec<U>, TransactionError>> + Send;
+
+    /// Executes a parameterized query within this transaction.
+    fn execute_parameterized_query(
+        &mut self,
+        parameterized_query: ParameterizedQuery,
+    ) -> impl Future<Output = Result<Vec<U>, TransactionError>> + Send;
+
+    /// Commits this transaction.
+    fn commit(self) -> impl Future<Output = Result<(), TransactionError>> + Send;
+
+    /// Rolls back this transaction.
+    fn rollback(self) -> impl Future<Output = Result<(), TransactionError>> + Send;
+}
+
+/// Abstraction for a data store capable of executing queries.
 pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
+    /// The backend-specific handle for an open transaction.
+    type Transaction<'a>: DataStoreTransaction<T, U>
+    where
+        Self: 'a;
+
     /// Executes a SQL statement with no bound parameters.
-    /// For queries with user input, use [`execute_parameterized_query`](Self::execute_parameterized_query).
     fn execute_query(
         &self,
         query: impl Into<Cow<'static, str>> + Send,
     ) -> impl Future<Output = Result<Vec<U>, DataStoreError>> + Send;
 
     /// Executes a fully constructed parameterized query.
-    /// Values for each of the parameters must have been bound prior to calling this method.
     fn execute_parameterized_query(
         &self,
         parameterized_query: ParameterizedQuery,
     ) -> impl Future<Output = Result<Vec<U>, DataStoreError>> + Send;
 
+    /// Opens a transaction with the requested backend-neutral policy.
+    fn begin_transaction(
+        &self,
+        policy: TransactionPolicy,
+    ) -> impl Future<Output = Result<Self::Transaction<'_>, TransactionError>> + Send;
+
     /// Executes a batch of parameterized queries in a single transaction.
-    ///
-    /// If any query fails, the transaction is rolled back and an error is returned.
     fn execute_transaction(
         &self,
         queries: Vec<ParameterizedQuery>,
-    ) -> impl Future<Output = Result<(), DataStoreError>> + Send;
+    ) -> impl Future<Output = Result<(), DataStoreError>> + Send {
+        async move {
+            let mut transaction = self
+                .begin_transaction(TransactionPolicy::Default)
+                .await
+                .map_err(transaction_error_to_datastore)?;
+            for query in queries {
+                if let Err(error) = transaction.execute_parameterized_query(query).await {
+                    let _ = transaction.rollback().await;
+                    return Err(transaction_error_to_datastore(error));
+                }
+            }
+            transaction
+                .commit()
+                .await
+                .map_err(transaction_error_to_datastore)
+        }
+    }
+}
+
+fn transaction_error_to_datastore(error: TransactionError) -> DataStoreError {
+    match error {
+        TransactionError::Database(error) => error,
+        TransactionError::Retryable => DataStoreError {
+            details: "transaction conflict (retryable)".to_string(),
+        },
+        TransactionError::UnsupportedPolicy => DataStoreError {
+            details: "transaction policy is unsupported".to_string(),
+        },
+    }
 }

@@ -1,6 +1,9 @@
 //! Rust DB Lib Testing Utilities
 
-use super::{DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery};
+use super::{
+    DataRow, DataStore, DataStoreError, DataStoreTransaction, DataVal, ParameterizedQuery,
+    TransactionError, TransactionPolicy,
+};
 use chrono::{DateTime, Utc};
 use std::{
     borrow::Cow,
@@ -186,6 +189,62 @@ pub enum Operation {
     ParameterizedQuery(ParameterizedQuery),
     /// A batch of queries passed to [`execute_transaction`](DataStore::execute_transaction).
     Transaction(Vec<ParameterizedQuery>),
+    /// A transaction-scoped operation.
+    TransactionQuery(ParameterizedQuery),
+    /// A transaction was opened with this policy.
+    TransactionBegin(TransactionPolicy),
+    /// A transaction was committed.
+    TransactionCommit,
+    /// A transaction was rolled back.
+    TransactionRollback,
+}
+
+pub struct TestTransaction<'a, T: DataRow<TestVal> + Clone> {
+    store: &'a TestDataStore<T>,
+}
+
+impl<T: DataRow<TestVal> + Clone> DataStoreTransaction<TestVal, T> for TestTransaction<'_, T> {
+    async fn execute_query(
+        &mut self,
+        query: impl Into<Cow<'static, str>> + Send,
+    ) -> Result<Vec<T>, TransactionError> {
+        self.store
+            .operations
+            .lock()
+            .unwrap()
+            .push(Operation::Query(query.into()));
+        Ok(self.store.data.clone())
+    }
+
+    async fn execute_parameterized_query(
+        &mut self,
+        parameterized_query: ParameterizedQuery,
+    ) -> Result<Vec<T>, TransactionError> {
+        self.store
+            .operations
+            .lock()
+            .unwrap()
+            .push(Operation::TransactionQuery(parameterized_query));
+        Ok(self.store.data.clone())
+    }
+
+    async fn commit(self) -> Result<(), TransactionError> {
+        self.store
+            .operations
+            .lock()
+            .unwrap()
+            .push(Operation::TransactionCommit);
+        Ok(())
+    }
+
+    async fn rollback(self) -> Result<(), TransactionError> {
+        self.store
+            .operations
+            .lock()
+            .unwrap()
+            .push(Operation::TransactionRollback);
+        Ok(())
+    }
 }
 
 /// Implementation of [`DataStore`] that can be used in test cases.
@@ -220,6 +279,7 @@ impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
     }
 }
 impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
+    type Transaction<'a> = TestTransaction<'a, T>;
     async fn execute_query(
         &self,
         query: impl Into<Cow<'static, str>> + Send,
@@ -242,15 +302,15 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         Ok(self.data.clone())
     }
 
-    async fn execute_transaction(
+    async fn begin_transaction(
         &self,
-        queries: Vec<ParameterizedQuery>,
-    ) -> Result<(), DataStoreError> {
+        policy: TransactionPolicy,
+    ) -> Result<Self::Transaction<'_>, TransactionError> {
         self.operations
             .lock()
             .unwrap()
-            .push(Operation::Transaction(queries));
-        Ok(())
+            .push(Operation::TransactionBegin(policy));
+        Ok(TestTransaction { store: self })
     }
 }
 impl<T: DataRow<TestVal> + Clone> Clone for TestDataStore<T> {

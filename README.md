@@ -8,6 +8,10 @@ A library for connecting to a database from a Rust app. It encapsulates DB conne
 ## Interface
 The primary abstraction is the `DataStore<T: DataVal, U: DataRow<T>>` trait. See the rustdoc for full details.
 
+Transactions are opened with `begin_transaction(TransactionPolicy)`, returning a backend-specific handle that supports scoped reads and writes followed by `commit` or `rollback`. `TransactionPolicy::SerializeOn` requests serialization for a named logical resource; PostgreSQL implements this with serializable isolation and a transaction-scoped advisory lock. Backends that cannot honor a policy must return `TransactionError::UnsupportedPolicy` rather than silently weakening the guarantee.
+
+Transaction conflicts are returned as `TransactionError::Retryable`. The library does not retry automatically; callers should rerun the complete transaction, including all reads, when handling this classification. The existing `execute_transaction(Vec<ParameterizedQuery>)` convenience method remains available and uses the default policy.
+
 #### Supported implementations
 - `postgres::PostgresDataVal` — implements `DataVal`
 - `postgres::PostgresDataRow` — implements `DataRow<PostgresDataVal>`

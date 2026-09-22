@@ -319,7 +319,10 @@ async fn test_data_store_transaction_empty_batch() {
     assert!(result.is_ok());
     assert_eq!(
         store.captured_operations(),
-        vec![Operation::Transaction(vec![])]
+        vec![
+            Operation::TransactionBegin(TransactionPolicy::Default),
+            Operation::TransactionCommit,
+        ]
     );
 }
 
@@ -336,6 +339,36 @@ async fn test_data_store_transaction_with_queries() {
     assert!(result.is_ok());
     assert_eq!(
         store.captured_operations(),
-        vec![Operation::Transaction(vec![q1, q2])]
+        vec![
+            Operation::TransactionBegin(TransactionPolicy::Default),
+            Operation::TransactionQuery(q1),
+            Operation::TransactionQuery(q2),
+            Operation::TransactionCommit,
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_scoped_transaction_records_policy_and_reads() {
+    let store = TestDataStore::new(vec![TestRow {
+        data: "row".to_string(),
+    }]);
+    let mut transaction = store
+        .begin_transaction(TransactionPolicy::SerializeOn("users".into()))
+        .await
+        .unwrap();
+    let rows = transaction
+        .execute_query("SELECT * FROM users")
+        .await
+        .unwrap();
+    assert_eq!(rows[0].get("data").to_string().unwrap(), "row");
+    transaction.commit().await.unwrap();
+    assert_eq!(
+        store.captured_operations(),
+        vec![
+            Operation::TransactionBegin(TransactionPolicy::SerializeOn("users".into())),
+            Operation::Query("SELECT * FROM users".into()),
+            Operation::TransactionCommit,
+        ]
     );
 }
