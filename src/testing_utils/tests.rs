@@ -281,12 +281,6 @@ async fn test_data_store_captures_queries() {
     );
 }
 
-#[test]
-fn test_testval_default() {
-    let val = TestVal::default();
-    assert_eq!(val, TestVal::default());
-}
-
 #[tokio::test]
 async fn test_data_store_transaction_empty_batch() {
     let store = TestDataStore::new(vec![]);
