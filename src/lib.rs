@@ -165,8 +165,6 @@ impl ParameterizedQuery {
 pub enum TransactionError<E = Infallible> {
     /// The transaction conflicted with concurrent work and may succeed if retried.
     Retryable,
-    /// The backend cannot honor the requested policy.
-    UnsupportedPolicy,
     /// Any other transaction failure.
     DatabaseError(DataStoreError),
     /// The transaction closure rejected the operation.
@@ -180,7 +178,6 @@ impl<E: Display> Display for TransactionError<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Retryable => write!(f, "transaction conflict (retryable)"),
-            Self::UnsupportedPolicy => write!(f, "transaction policy is unsupported"),
             Self::DatabaseError(error) => Display::fmt(error, f),
             Self::OperationError(error) => Display::fmt(error, f),
         }
@@ -313,9 +310,6 @@ fn transaction_error_to_datastore<E>(error: TransactionError<E>) -> DataStoreErr
         TransactionError::DatabaseError(error) => error,
         TransactionError::Retryable => DataStoreError {
             details: "transaction conflict (retryable)".to_string(),
-        },
-        TransactionError::UnsupportedPolicy => DataStoreError {
-            details: "transaction policy is unsupported".to_string(),
         },
         TransactionError::OperationError(_) => DataStoreError {
             details: "transaction operation failed".to_string(),

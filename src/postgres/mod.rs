@@ -252,7 +252,6 @@ fn classify_transaction_error(error: Error) -> TransactionError {
 fn map_transaction_error<E>(error: TransactionError) -> TransactionError<E> {
     match error {
         TransactionError::Retryable => TransactionError::Retryable,
-        TransactionError::UnsupportedPolicy => TransactionError::UnsupportedPolicy,
         TransactionError::DatabaseError(error) => TransactionError::DatabaseError(error),
         TransactionError::OperationError(_) => unreachable!(),
     }
