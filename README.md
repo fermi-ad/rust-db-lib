@@ -8,10 +8,6 @@ A library for connecting to a database from a Rust app. It encapsulates DB conne
 ## Interface
 The primary abstraction is the `DataStore<T: DataVal, U: DataRow<T>>` trait. See the rustdoc for full details.
 
-Transactions are opened with `begin_transaction(TransactionPolicy)`, returning a backend-specific handle that supports scoped reads and writes followed by `commit` or `rollback`. `TransactionPolicy::SerializeOn` requests serialization for a named logical resource; PostgreSQL implements this with serializable isolation and a transaction-scoped advisory lock. Backends that cannot honor a policy must return `TransactionError::UnsupportedPolicy` rather than silently weakening the guarantee.
-
-Transaction conflicts are returned as `TransactionError::Retryable`. The library does not retry automatically; callers should rerun the complete transaction, including all reads, when handling this classification. The existing `execute_transaction(Vec<ParameterizedQuery>)` convenience method remains available and uses the default policy.
-
 #### Supported implementations
 - `postgres::PostgresDataVal` — implements `DataVal`
 - `postgres::PostgresDataRow` — implements `DataRow<PostgresDataVal>`
@@ -44,6 +40,43 @@ let store = PostgresDataStore::new(config).await?;
 | `connection_timeout` | `10 seconds` |
 
 ## Features
+
+#### Transactions
+
+For a simple write-only batch, use [`DataStore::execute_transaction()`](src/lib.rs:314). Pass it a vector of [`ParameterizedQuery`](src/lib.rs:122) values; it runs them in order using the default transaction policy and commits them only if the entire batch succeeds:
+
+```rust,ignore
+let queries = vec![
+    ParameterizedQuery::new("UPDATE device_settings SET fan_mode = 'cool' WHERE device_id = 42"),
+    ParameterizedQuery::new("INSERT INTO device_setting_events (device_id, kind) VALUES (42, 'updated')"),
+];
+store.execute_transaction(queries).await?;
+```
+
+When a transaction needs to read data before performing related writes, use [`DataStore::with_transaction()`](src/lib.rs:248). The closure receives a transaction-scoped query interface and runs entirely within one transaction. Returning `Ok` commits every mutation; returning an error rolls back the entire operation. [`TransactionPolicy::SerializeOn`](src/lib.rs:165) coordinates transactions operating on the same named logical resource. If concurrent work causes a transaction conflict, the operation returns [`TransactionError::Retryable`](src/lib.rs:176). The library does not retry automatically, so retry the complete closure, including all of its reads.
+
+```rust,ignore
+use rust_db_lib::TransactionPolicy;
+
+let result = store
+    .with_transaction(TransactionPolicy::SerializeOn("device:42".into()), |tx| {
+        Box::pin(async move {
+            let readings = tx
+                .execute_query("SELECT temperature FROM device_readings WHERE device_id = 42")
+                .await?;
+            if readings.is_empty() {
+                return Err("device reading was not found".to_string());
+            }
+
+            tx.execute_query("UPDATE device_settings SET fan_mode = 'cool' WHERE device_id = 42")
+                .await?;
+            tx.execute_query("INSERT INTO device_setting_events (device_id, kind) VALUES (42, 'updated')")
+                .await?;
+            Ok(())
+        })
+    })
+    .await;
+```
 
 #### `testing-utils`
 `rust-db-lib = { git = "https://github.com/fermi-ad/rust-db-lib", tag = "vX.Y.Z", features = ["testing-utils"] }`

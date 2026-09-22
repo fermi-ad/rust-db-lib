@@ -243,9 +243,18 @@ fn classify_transaction_error(error: Error) -> TransactionError {
     match &error {
         Error::Database(database_error) => match database_error.code().as_deref() {
             Some("40001") | Some("40P01") => TransactionError::Retryable,
-            _ => TransactionError::Database(DataStoreError::from(error)),
+            _ => TransactionError::DatabaseError(DataStoreError::from(error)),
         },
-        _ => TransactionError::Database(DataStoreError::from(error)),
+        _ => TransactionError::DatabaseError(DataStoreError::from(error)),
+    }
+}
+
+fn map_transaction_error<E>(error: TransactionError) -> TransactionError<E> {
+    match error {
+        TransactionError::Retryable => TransactionError::Retryable,
+        TransactionError::UnsupportedPolicy => TransactionError::UnsupportedPolicy,
+        TransactionError::DatabaseError(error) => TransactionError::DatabaseError(error),
+        TransactionError::OperationError(_) => unreachable!(),
     }
 }
 
@@ -283,20 +292,6 @@ impl<'a> DataStoreTransaction<PostgresDataVal, PostgresDataRow> for PostgresTran
             .fetch_all(&mut *self.transaction)
             .await
             .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
-            .map_err(classify_transaction_error)
-    }
-
-    async fn commit(self) -> Result<(), TransactionError> {
-        self.transaction
-            .commit()
-            .await
-            .map_err(classify_transaction_error)
-    }
-
-    async fn rollback(self) -> Result<(), TransactionError> {
-        self.transaction
-            .rollback()
-            .await
             .map_err(classify_transaction_error)
     }
 }
@@ -346,22 +341,32 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             .map_err(DataStoreError::from)
     }
 
-    async fn begin_transaction(
-        &self,
+    async fn with_transaction<'store, R, E, F>(
+        &'store self,
         policy: TransactionPolicy,
-    ) -> Result<Self::Transaction<'_>, TransactionError> {
+        operation: F,
+    ) -> Result<R, TransactionError<E>>
+    where
+        R: Send + 'store,
+        E: Send + 'store,
+        F: for<'tx> FnOnce(
+                &'tx mut Self::Transaction<'store>,
+            ) -> super::TransactionFuture<'tx, R, E>
+            + Send
+            + 'store,
+    {
         let mut transaction = self
             .db_pool
             .begin()
             .await
-            .map_err(classify_transaction_error)?;
+            .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
         if let TransactionPolicy::SerializeOn(resource) = policy {
             if let Err(error) = sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
                 .execute(&mut *transaction)
                 .await
             {
                 let _ = transaction.rollback().await;
-                return Err(classify_transaction_error(error));
+                return Err(map_transaction_error(classify_transaction_error(error)));
             }
             let lock_key = resource_lock_key(resource.as_ref());
             if let Err(error) = sqlx::query("SELECT pg_advisory_xact_lock($1)")
@@ -370,9 +375,26 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
                 .await
             {
                 let _ = transaction.rollback().await;
-                return Err(classify_transaction_error(error));
+                return Err(map_transaction_error(classify_transaction_error(error)));
             }
         }
-        Ok(PostgresTransaction { transaction })
+
+        let mut transaction = PostgresTransaction { transaction };
+        match operation(&mut transaction).await {
+            Ok(value) => transaction
+                .transaction
+                .commit()
+                .await
+                .map_err(|error| map_transaction_error(classify_transaction_error(error)))
+                .map(|()| value),
+            Err(error) => {
+                transaction
+                    .transaction
+                    .rollback()
+                    .await
+                    .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
+                Err(TransactionError::OperationError(error))
+            }
+        }
     }
 }

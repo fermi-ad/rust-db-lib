@@ -349,26 +349,47 @@ async fn test_data_store_transaction_with_queries() {
 }
 
 #[tokio::test]
-async fn test_scoped_transaction_records_policy_and_reads() {
+async fn test_closure_transaction_records_policy_and_reads() {
     let store = TestDataStore::new(vec![TestRow {
         data: "row".to_string(),
     }]);
-    let mut transaction = store
-        .begin_transaction(TransactionPolicy::SerializeOn("users".into()))
-        .await
-        .unwrap();
-    let rows = transaction
-        .execute_query("SELECT * FROM users")
+    let rows = store
+        .with_transaction(
+            TransactionPolicy::SerializeOn("users".into()),
+            |transaction| {
+                Box::pin(async move { transaction.execute_query("SELECT * FROM users").await })
+            },
+        )
         .await
         .unwrap();
     assert_eq!(rows[0].get("data").to_string().unwrap(), "row");
-    transaction.commit().await.unwrap();
     assert_eq!(
         store.captured_operations(),
         vec![
             Operation::TransactionBegin(TransactionPolicy::SerializeOn("users".into())),
             Operation::Query("SELECT * FROM users".into()),
             Operation::TransactionCommit,
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_closure_transaction_rolls_back_on_operation_error() {
+    let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
+    let result = store
+        .with_transaction(TransactionPolicy::Default, |_transaction| {
+            Box::pin(async { Err::<(), _>(TestError) })
+        })
+        .await;
+    assert!(matches!(
+        result,
+        Err(TransactionError::OperationError(TestError))
+    ));
+    assert_eq!(
+        store.captured_operations(),
+        vec![
+            Operation::TransactionBegin(TransactionPolicy::Default),
+            Operation::TransactionRollback,
         ]
     );
 }

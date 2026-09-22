@@ -227,24 +227,6 @@ impl<T: DataRow<TestVal> + Clone> DataStoreTransaction<TestVal, T> for TestTrans
             .push(Operation::TransactionQuery(parameterized_query));
         Ok(self.store.data.clone())
     }
-
-    async fn commit(self) -> Result<(), TransactionError> {
-        self.store
-            .operations
-            .lock()
-            .unwrap()
-            .push(Operation::TransactionCommit);
-        Ok(())
-    }
-
-    async fn rollback(self) -> Result<(), TransactionError> {
-        self.store
-            .operations
-            .lock()
-            .unwrap()
-            .push(Operation::TransactionRollback);
-        Ok(())
-    }
 }
 
 /// Implementation of [`DataStore`] that can be used in test cases.
@@ -302,15 +284,41 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         Ok(self.data.clone())
     }
 
-    async fn begin_transaction(
-        &self,
+    async fn with_transaction<'store, R, E, F>(
+        &'store self,
         policy: TransactionPolicy,
-    ) -> Result<Self::Transaction<'_>, TransactionError> {
+        operation: F,
+    ) -> Result<R, TransactionError<E>>
+    where
+        R: Send + 'store,
+        E: Send + 'store,
+        F: for<'tx> FnOnce(
+                &'tx mut Self::Transaction<'store>,
+            ) -> super::TransactionFuture<'tx, R, E>
+            + Send
+            + 'store,
+    {
         self.operations
             .lock()
             .unwrap()
             .push(Operation::TransactionBegin(policy));
-        Ok(TestTransaction { store: self })
+        let mut transaction = TestTransaction { store: self };
+        match operation(&mut transaction).await {
+            Ok(value) => {
+                self.operations
+                    .lock()
+                    .unwrap()
+                    .push(Operation::TransactionCommit);
+                Ok(value)
+            }
+            Err(error) => {
+                self.operations
+                    .lock()
+                    .unwrap()
+                    .push(Operation::TransactionRollback);
+                Err(TransactionError::OperationError(error))
+            }
+        }
     }
 }
 impl<T: DataRow<TestVal> + Clone> Clone for TestDataStore<T> {
