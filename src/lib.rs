@@ -165,10 +165,10 @@ impl ParameterizedQuery {
 pub enum TransactionError<E = Infallible> {
     /// The transaction conflicted with concurrent work and may succeed if retried.
     Retryable,
-    /// Any other transaction failure.
-    DatabaseError(DataStoreError),
     /// The transaction closure rejected the operation.
     OperationError(E),
+    /// Any other transaction failure.
+    DatabaseError(DataStoreError),
 }
 
 /// The default closure error for transaction operations that only return database errors.
@@ -178,8 +178,8 @@ impl<E: Display> Display for TransactionError<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Retryable => write!(f, "transaction conflict (retryable)"),
-            Self::DatabaseError(error) => Display::fmt(error, f),
             Self::OperationError(error) => Display::fmt(error, f),
+            Self::DatabaseError(error) => Display::fmt(error, f),
         }
     }
 }
@@ -307,12 +307,12 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
 
 fn transaction_error_to_datastore<E>(error: TransactionError<E>) -> DataStoreError {
     match error {
-        TransactionError::DatabaseError(error) => error,
         TransactionError::Retryable => DataStoreError {
             details: "transaction conflict (retryable)".to_string(),
         },
         TransactionError::OperationError(_) => DataStoreError {
             details: "transaction operation failed".to_string(),
         },
+        TransactionError::DatabaseError(error) => error,
     }
 }
