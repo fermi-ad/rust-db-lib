@@ -258,12 +258,16 @@ fn map_transaction_error<E>(error: TransactionError) -> TransactionError<E> {
     }
 }
 
+// FNV-1a 64-bit parameters, from the standard FNV specification.
+const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+const FNV_PRIME: u64 = 0x100000001b3;
+
 fn resource_lock_key(resource_name: &str) -> i64 {
     // FNV-1a gives a deterministic key without exposing backend-specific encoding to callers.
-    let mut hash = 0xcbf29ce484222325u64;
+    let mut hash = FNV_OFFSET_BASIS;
     for byte in resource_name.as_bytes() {
         hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
+        hash = hash.wrapping_mul(FNV_PRIME);
     }
     hash as i64
 }
