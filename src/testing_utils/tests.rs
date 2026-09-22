@@ -319,7 +319,10 @@ async fn test_data_store_transaction_empty_batch() {
     assert!(result.is_ok());
     assert_eq!(
         store.captured_operations(),
-        vec![Operation::TransactionBegin, Operation::TransactionCommit,]
+        vec![
+            Operation::TransactionBegin(None),
+            Operation::TransactionCommit,
+        ]
     );
 }
 
@@ -337,9 +340,9 @@ async fn test_data_store_transaction_with_queries() {
     assert_eq!(
         store.captured_operations(),
         vec![
-            Operation::TransactionBegin,
-            Operation::TransactionQuery(q1),
-            Operation::TransactionQuery(q2),
+            Operation::TransactionBegin(None),
+            Operation::ParameterizedQuery(q1),
+            Operation::ParameterizedQuery(q2),
             Operation::TransactionCommit,
         ]
     );
@@ -360,7 +363,7 @@ async fn test_closure_transaction_records_policy_and_reads() {
     assert_eq!(
         store.captured_operations(),
         vec![
-            Operation::TransactionBeginSerialized("users".into()),
+            Operation::TransactionBegin(Some("users".into())),
             Operation::Query("SELECT * FROM users".into()),
             Operation::TransactionCommit,
         ]
@@ -379,6 +382,9 @@ async fn test_closure_transaction_rolls_back_on_operation_error() {
     ));
     assert_eq!(
         store.captured_operations(),
-        vec![Operation::TransactionBegin, Operation::TransactionRollback,]
+        vec![
+            Operation::TransactionBegin(None),
+            Operation::TransactionRollback,
+        ]
     );
 }

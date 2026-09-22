@@ -187,14 +187,8 @@ pub enum Operation {
     Query(Cow<'static, str>),
     /// A query passed to [`execute_parameterized_query`](DataStore::execute_parameterized_query).
     ParameterizedQuery(ParameterizedQuery),
-    /// A batch of queries passed to [`execute_transaction`](DataStore::execute_transaction).
-    Transaction(Vec<ParameterizedQuery>),
-    /// A transaction-scoped operation.
-    TransactionQuery(ParameterizedQuery),
-    /// An ordinary transaction was opened.
-    TransactionBegin,
-    /// A transaction serialized access to the named logical resource.
-    TransactionBeginSerialized(Cow<'static, str>),
+    /// An transaction was opened, with an optional resource name for serialized transactions.
+    TransactionBegin(Option<Cow<'static, str>>),
     /// A transaction was committed.
     TransactionCommit,
     /// A transaction was rolled back.
@@ -226,7 +220,7 @@ impl<T: DataRow<TestVal> + Clone> DataStoreTransaction<TestVal, T> for TestTrans
             .operations
             .lock()
             .unwrap()
-            .push(Operation::TransactionQuery(parameterized_query));
+            .push(Operation::ParameterizedQuery(parameterized_query));
         Ok(self.store.data.clone())
     }
 }
@@ -302,7 +296,7 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         self.operations
             .lock()
             .unwrap()
-            .push(Operation::TransactionBegin);
+            .push(Operation::TransactionBegin(None));
         let mut transaction = TestTransaction { store: self };
         match operation(&mut transaction).await {
             Ok(value) => {
@@ -339,7 +333,7 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         self.operations
             .lock()
             .unwrap()
-            .push(Operation::TransactionBeginSerialized(resource_name));
+            .push(Operation::TransactionBegin(Some(resource_name)));
         let mut transaction = TestTransaction { store: self };
         match operation(&mut transaction).await {
             Ok(value) => {
