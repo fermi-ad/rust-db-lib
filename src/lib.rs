@@ -5,6 +5,7 @@
 use chrono::{DateTime, Utc};
 use std::{
     borrow::Cow,
+    convert::Infallible,
     error::Error,
     fmt::{self, Display, Formatter},
 };
@@ -170,9 +171,6 @@ pub enum TransactionError<E = Infallible> {
     /// Any other transaction failure.
     DatabaseError(DataStoreError),
 }
-
-/// The default closure error for transaction operations that only return database errors.
-pub type Infallible = std::convert::Infallible;
 
 impl<E: Display> Display for TransactionError<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
