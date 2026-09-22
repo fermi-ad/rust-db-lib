@@ -239,21 +239,13 @@ pub struct PostgresTransaction<'a> {
     transaction: sqlx::Transaction<'a, Postgres>,
 }
 
-fn classify_transaction_error(error: Error) -> TransactionError {
+fn classify_transaction_error<E>(error: Error) -> TransactionError<E> {
     match &error {
         Error::Database(database_error) => match database_error.code().as_deref() {
             Some("40001") | Some("40P01") => TransactionError::Retryable,
             _ => TransactionError::DatabaseError(DataStoreError::from(error)),
         },
         _ => TransactionError::DatabaseError(DataStoreError::from(error)),
-    }
-}
-
-fn map_transaction_error<E>(error: TransactionError) -> TransactionError<E> {
-    match error {
-        TransactionError::Retryable => TransactionError::Retryable,
-        TransactionError::DatabaseError(error) => TransactionError::DatabaseError(error),
-        TransactionError::OperationError(_) => unreachable!(),
     }
 }
 
@@ -361,7 +353,7 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             self.db_pool
                 .begin()
                 .await
-                .map_err(|error| map_transaction_error(classify_transaction_error(error)))?,
+                .map_err(classify_transaction_error::<E>)?,
             operation,
         )
         .await
@@ -385,16 +377,16 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             .db_pool
             .begin()
             .await
-            .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
+            .map_err(classify_transaction_error::<E>)?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
-            .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
+            .map_err(classify_transaction_error::<E>)?;
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
             .bind(resource_lock_key(resource_name.as_ref()))
             .execute(&mut *transaction)
             .await
-            .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
+            .map_err(classify_transaction_error::<E>)?;
         self.handle_transaction(transaction, operation).await
     }
 }
@@ -420,14 +412,14 @@ impl PostgresDataStore {
                 .transaction
                 .commit()
                 .await
-                .map_err(|error| map_transaction_error(classify_transaction_error(error)))
+                .map_err(classify_transaction_error::<E>)
                 .map(|()| value),
             Err(error) => {
                 transaction
                     .transaction
                     .rollback()
                     .await
-                    .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
+                    .map_err(classify_transaction_error::<E>)?;
                 Err(TransactionError::OperationError(error))
             }
         }
