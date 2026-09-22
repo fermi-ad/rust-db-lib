@@ -4,7 +4,7 @@
 
 use super::{
     DataRow, DataStore, DataStoreError, DataStoreTransaction, DataVal, ParameterizedQuery,
-    QueryParameter, TransactionError, TransactionPolicy,
+    QueryParameter, TransactionError,
 };
 use chrono::{DateTime, Utc};
 use sqlx::{
@@ -358,8 +358,14 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             + Send
             + 'store,
     {
-        self.with_policy_transaction(TransactionPolicy::Default, operation)
-            .await
+        self.handle_transaction(
+            self.db_pool
+                .begin()
+                .await
+                .map_err(|error| map_transaction_error(classify_transaction_error(error)))?,
+            operation,
+        )
+        .await
     }
 
     async fn with_serialized_transaction<'store, R, E, F>(
@@ -376,15 +382,28 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             + Send
             + 'store,
     {
-        self.with_policy_transaction(TransactionPolicy::SerializeOn(resource_name), operation)
+        let mut transaction = self
+            .db_pool
+            .begin()
             .await
+            .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(resource_lock_key(resource_name.as_ref()))
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
+        self.handle_transaction(transaction, operation).await
     }
 }
 
 impl PostgresDataStore {
-    async fn with_policy_transaction<'store, R, E, F>(
+    async fn handle_transaction<'store, R, E, F>(
         &'store self,
-        policy: TransactionPolicy,
+        transaction: sqlx::Transaction<'store, Postgres>,
         operation: F,
     ) -> Result<R, TransactionError<E>>
     where
@@ -396,22 +415,6 @@ impl PostgresDataStore {
             + Send
             + 'store,
     {
-        let mut transaction = self
-            .db_pool
-            .begin()
-            .await
-            .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
-        if let TransactionPolicy::SerializeOn(resource_name) = policy {
-            sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-                .execute(&mut *transaction)
-                .await
-                .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
-            sqlx::query("SELECT pg_advisory_xact_lock($1)")
-                .bind(resource_lock_key(resource_name.as_ref()))
-                .execute(&mut *transaction)
-                .await
-                .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
-        }
         let mut transaction = PostgresTransaction { transaction };
         match operation(&mut transaction).await {
             Ok(value) => transaction

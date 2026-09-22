@@ -2,7 +2,7 @@
 
 use super::{
     DataRow, DataStore, DataStoreError, DataStoreTransaction, DataVal, ParameterizedQuery,
-    TransactionError, TransactionPolicy,
+    TransactionError,
 };
 use chrono::{DateTime, Utc};
 use std::{
@@ -191,8 +191,10 @@ pub enum Operation {
     Transaction(Vec<ParameterizedQuery>),
     /// A transaction-scoped operation.
     TransactionQuery(ParameterizedQuery),
-    /// A transaction was opened with this policy.
-    TransactionBegin(TransactionPolicy),
+    /// An ordinary transaction was opened.
+    TransactionBegin,
+    /// A transaction serialized access to the named logical resource.
+    TransactionBeginSerialized(Cow<'static, str>),
     /// A transaction was committed.
     TransactionCommit,
     /// A transaction was rolled back.
@@ -300,7 +302,7 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         self.operations
             .lock()
             .unwrap()
-            .push(Operation::TransactionBegin(TransactionPolicy::Default));
+            .push(Operation::TransactionBegin);
         let mut transaction = TestTransaction { store: self };
         match operation(&mut transaction).await {
             Ok(value) => {
@@ -337,9 +339,7 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         self.operations
             .lock()
             .unwrap()
-            .push(Operation::TransactionBegin(TransactionPolicy::SerializeOn(
-                resource_name,
-            )));
+            .push(Operation::TransactionBeginSerialized(resource_name));
         let mut transaction = TestTransaction { store: self };
         match operation(&mut transaction).await {
             Ok(value) => {

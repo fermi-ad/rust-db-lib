@@ -160,15 +160,6 @@ impl ParameterizedQuery {
     }
 }
 
-/// A backend-neutral consistency guarantee requested for a transaction.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TransactionPolicy {
-    /// An ordinary transaction with the backend's default consistency.
-    Default,
-    /// Serialize transactions requesting the same logical resource.
-    SerializeOn(Cow<'static, str>),
-}
-
 /// Failure opening, executing, or completing a transaction.
 #[derive(Clone, Debug)]
 pub enum TransactionError<E = Infallible> {
