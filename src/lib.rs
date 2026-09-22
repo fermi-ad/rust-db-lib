@@ -235,7 +235,7 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
         parameterized_query: ParameterizedQuery,
     ) -> impl Future<Output = Result<Vec<U>, DataStoreError>> + Send;
 
-    /// Executes `operation` within a transaction requesting the given [`TransactionPolicy`].
+    /// Executes `operation` within a transaction.
     ///
     /// If `operation` returns `Ok`, the transaction is committed and the value returned.
     /// If `operation` returns `Err`, the transaction is rolled back and the error is wrapped
@@ -246,10 +246,8 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use rust_db_lib::TransactionPolicy;
-    ///
     /// let applied = store
-    ///     .with_transaction(TransactionPolicy::SerializeOn("device:42".into()), |tx| {
+    ///     .with_transaction(|tx| {
     ///         Box::pin(async move {
     ///             let readings = tx
     ///                 .execute_query("SELECT temperature, battery_percent FROM device_readings WHERE device_id = 42")
@@ -273,7 +271,20 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     /// ```
     fn with_transaction<'store, R, E, F>(
         &'store self,
-        policy: TransactionPolicy,
+        operation: F,
+    ) -> impl Future<Output = Result<R, TransactionError<E>>> + Send + 'store
+    where
+        R: Send + 'store,
+        E: Send + 'store,
+        F: for<'tx> FnOnce(&'tx mut Self::Transaction<'store>) -> TransactionFuture<'tx, R, E>
+            + Send
+            + 'store;
+
+    /// Executes `operation` in a transaction serialized against other operations
+    /// using the same named logical resource.
+    fn with_serialized_transaction<'store, R, E, F>(
+        &'store self,
+        resource_name: Cow<'static, str>,
         operation: F,
     ) -> impl Future<Output = Result<R, TransactionError<E>>> + Send + 'store
     where
@@ -289,20 +300,17 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
         queries: Vec<ParameterizedQuery>,
     ) -> impl Future<Output = Result<(), DataStoreError>> + Send {
         async move {
-            self.with_transaction::<(), DataStoreError, _>(
-                TransactionPolicy::Default,
-                |transaction| {
-                    Box::pin(async move {
-                        for query in queries {
-                            transaction
-                                .execute_parameterized_query(query)
-                                .await
-                                .map_err(transaction_error_to_datastore)?;
-                        }
-                        Ok(())
-                    })
-                },
-            )
+            self.with_transaction::<(), DataStoreError, _>(|transaction| {
+                Box::pin(async move {
+                    for query in queries {
+                        transaction
+                            .execute_parameterized_query(query)
+                            .await
+                            .map_err(transaction_error_to_datastore)?;
+                    }
+                    Ok(())
+                })
+            })
             .await
             .map_err(transaction_error_to_datastore)
         }

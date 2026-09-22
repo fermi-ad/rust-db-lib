@@ -258,10 +258,10 @@ fn map_transaction_error<E>(error: TransactionError) -> TransactionError<E> {
     }
 }
 
-fn resource_lock_key(resource: &str) -> i64 {
+fn resource_lock_key(resource_name: &str) -> i64 {
     // FNV-1a gives a deterministic key without exposing backend-specific encoding to callers.
     let mut hash = 0xcbf29ce484222325u64;
-    for byte in resource.as_bytes() {
+    for byte in resource_name.as_bytes() {
         hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x100000001b3);
     }
@@ -343,7 +343,6 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
 
     async fn with_transaction<'store, R, E, F>(
         &'store self,
-        policy: TransactionPolicy,
         operation: F,
     ) -> Result<R, TransactionError<E>>
     where
@@ -355,30 +354,60 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             + Send
             + 'store,
     {
+        self.with_policy_transaction(TransactionPolicy::Default, operation)
+            .await
+    }
+
+    async fn with_serialized_transaction<'store, R, E, F>(
+        &'store self,
+        resource_name: Cow<'static, str>,
+        operation: F,
+    ) -> Result<R, TransactionError<E>>
+    where
+        R: Send + 'store,
+        E: Send + 'store,
+        F: for<'tx> FnOnce(
+                &'tx mut Self::Transaction<'store>,
+            ) -> super::TransactionFuture<'tx, R, E>
+            + Send
+            + 'store,
+    {
+        self.with_policy_transaction(TransactionPolicy::SerializeOn(resource_name), operation)
+            .await
+    }
+}
+
+impl PostgresDataStore {
+    async fn with_policy_transaction<'store, R, E, F>(
+        &'store self,
+        policy: TransactionPolicy,
+        operation: F,
+    ) -> Result<R, TransactionError<E>>
+    where
+        R: Send + 'store,
+        E: Send + 'store,
+        F: for<'tx> FnOnce(
+                &'tx mut PostgresTransaction<'store>,
+            ) -> super::TransactionFuture<'tx, R, E>
+            + Send
+            + 'store,
+    {
         let mut transaction = self
             .db_pool
             .begin()
             .await
             .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
-        if let TransactionPolicy::SerializeOn(resource) = policy {
-            if let Err(error) = sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        if let TransactionPolicy::SerializeOn(resource_name) = policy {
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
                 .execute(&mut *transaction)
                 .await
-            {
-                let _ = transaction.rollback().await;
-                return Err(map_transaction_error(classify_transaction_error(error)));
-            }
-            let lock_key = resource_lock_key(resource.as_ref());
-            if let Err(error) = sqlx::query("SELECT pg_advisory_xact_lock($1)")
-                .bind(lock_key)
+                .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
+            sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                .bind(resource_lock_key(resource_name.as_ref()))
                 .execute(&mut *transaction)
                 .await
-            {
-                let _ = transaction.rollback().await;
-                return Err(map_transaction_error(classify_transaction_error(error)));
-            }
+                .map_err(|error| map_transaction_error(classify_transaction_error(error)))?;
         }
-
         let mut transaction = PostgresTransaction { transaction };
         match operation(&mut transaction).await {
             Ok(value) => transaction

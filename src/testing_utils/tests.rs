@@ -354,12 +354,9 @@ async fn test_closure_transaction_records_policy_and_reads() {
         data: "row".to_string(),
     }]);
     let rows = store
-        .with_transaction(
-            TransactionPolicy::SerializeOn("users".into()),
-            |transaction| {
-                Box::pin(async move { transaction.execute_query("SELECT * FROM users").await })
-            },
-        )
+        .with_serialized_transaction("users".into(), |transaction| {
+            Box::pin(async move { transaction.execute_query("SELECT * FROM users").await })
+        })
         .await
         .unwrap();
     assert_eq!(rows[0].get("data").to_string().unwrap(), "row");
@@ -377,9 +374,7 @@ async fn test_closure_transaction_records_policy_and_reads() {
 async fn test_closure_transaction_rolls_back_on_operation_error() {
     let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
     let result = store
-        .with_transaction(TransactionPolicy::Default, |_transaction| {
-            Box::pin(async { Err::<(), _>(TestError) })
-        })
+        .with_transaction(|_transaction| Box::pin(async { Err::<(), _>(TestError) }))
         .await;
     assert!(matches!(
         result,

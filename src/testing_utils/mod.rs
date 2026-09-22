@@ -286,7 +286,6 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
 
     async fn with_transaction<'store, R, E, F>(
         &'store self,
-        policy: TransactionPolicy,
         operation: F,
     ) -> Result<R, TransactionError<E>>
     where
@@ -301,7 +300,46 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         self.operations
             .lock()
             .unwrap()
-            .push(Operation::TransactionBegin(policy));
+            .push(Operation::TransactionBegin(TransactionPolicy::Default));
+        let mut transaction = TestTransaction { store: self };
+        match operation(&mut transaction).await {
+            Ok(value) => {
+                self.operations
+                    .lock()
+                    .unwrap()
+                    .push(Operation::TransactionCommit);
+                Ok(value)
+            }
+            Err(error) => {
+                self.operations
+                    .lock()
+                    .unwrap()
+                    .push(Operation::TransactionRollback);
+                Err(TransactionError::OperationError(error))
+            }
+        }
+    }
+
+    async fn with_serialized_transaction<'store, R, E, F>(
+        &'store self,
+        resource_name: Cow<'static, str>,
+        operation: F,
+    ) -> Result<R, TransactionError<E>>
+    where
+        R: Send + 'store,
+        E: Send + 'store,
+        F: for<'tx> FnOnce(
+                &'tx mut Self::Transaction<'store>,
+            ) -> super::TransactionFuture<'tx, R, E>
+            + Send
+            + 'store,
+    {
+        self.operations
+            .lock()
+            .unwrap()
+            .push(Operation::TransactionBegin(TransactionPolicy::SerializeOn(
+                resource_name,
+            )));
         let mut transaction = TestTransaction { store: self };
         match operation(&mut transaction).await {
             Ok(value) => {
