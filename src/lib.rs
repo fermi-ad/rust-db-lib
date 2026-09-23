@@ -5,7 +5,6 @@
 use chrono::{DateTime, Utc};
 use std::{
     borrow::Cow,
-    convert::Infallible,
     error::Error,
     fmt::{self, Display, Formatter},
 };
@@ -161,29 +160,25 @@ impl ParameterizedQuery {
     }
 }
 
-/// Failure opening, executing, or completing a transaction.
+/// Failure opening or completing a transaction.
 #[derive(Clone, Debug)]
-pub enum TransactionError<E = Infallible> {
+pub enum TransactionError {
     /// The transaction conflicted with concurrent work and may succeed if retried.
     Retryable,
-    /// The transaction closure rejected the operation.
-    OperationError(E),
     /// Any other transaction failure.
     DatabaseError(DataStoreError),
 }
-
-impl<E: Display> Display for TransactionError<E> {
+impl Display for TransactionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Retryable => write!(f, "transaction conflict (retryable)"),
-            Self::OperationError(error) => Display::fmt(error, f),
             Self::DatabaseError(error) => Display::fmt(error, f),
         }
     }
 }
-impl<E: Display + fmt::Debug> Error for TransactionError<E> {}
+impl Error for TransactionError {}
 
-/// Operations available to a closure while it owns a transaction borrow.
+/// Operations available on an open transaction.
 pub trait DataStoreTransaction<T: DataVal, U: DataRow<T>>: Send {
     /// Executes an unparameterized query within this transaction.
     fn execute_query(
@@ -196,15 +191,21 @@ pub trait DataStoreTransaction<T: DataVal, U: DataRow<T>>: Send {
         &mut self,
         parameterized_query: ParameterizedQuery,
     ) -> impl Future<Output = Result<Vec<U>, TransactionError>> + Send;
-}
 
-/// A boxed asynchronous transaction closure.
-pub type TransactionFuture<'a, R, E = Infallible> =
-    std::pin::Pin<Box<dyn Future<Output = Result<R, E>> + Send + 'a>>;
+    /// Call [`Self::commit`] to persist the transaction or [`Self::rollback`] to discard it.
+    /// An open transaction that is dropped without being committed or rolled back is rolled back
+    /// automatically by the backend.
+    ///
+    /// Commits this transaction and persists all changes made within it.
+    fn commit(self) -> impl Future<Output = Result<(), TransactionError>> + Send;
+
+    /// Rolls back this transaction and discards all changes made within it.
+    fn rollback(self) -> impl Future<Output = Result<(), TransactionError>> + Send;
+}
 
 /// Abstraction for a data store capable of executing queries.
 pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
-    /// The backend-specific transaction context.
+    /// The backend-specific handle for an open transaction.
     type Transaction<'a>: DataStoreTransaction<T, U>
     where
         Self: 'a;
@@ -221,96 +222,116 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
         parameterized_query: ParameterizedQuery,
     ) -> impl Future<Output = Result<Vec<U>, DataStoreError>> + Send;
 
-    /// Executes `operation` within a transaction.
+    /// Executes a batch of parameterized queries in a single transaction.
     ///
-    /// If `operation` returns `Ok`, the transaction is committed and the value returned.
-    /// If `operation` returns `Err`, the transaction is rolled back and the error is wrapped
-    /// in [`TransactionError::OperationError`]. Backend failures opening, committing, or rolling
-    /// back the transaction are classified per [`TransactionError`], including
-    /// [`TransactionError::Retryable`] for conflicts that may succeed if `operation` — including
-    /// any reads it performed — is retried in full.
+    /// This is the simplest transaction API for write-only batches. Queries run in order; the
+    /// transaction is committed only when every query succeeds, and is rolled back if a query
+    /// fails.
     ///
     /// # Examples
-    /// ```rust,ignore
-    /// let applied = store
-    ///     .with_transaction(|tx| {
-    ///         Box::pin(async move {
-    ///             let readings = tx
-    ///                 .execute_query("SELECT temperature, battery_percent FROM device_readings WHERE device_id = 42")
-    ///                 .await?;
-    ///             if readings.is_empty() {
-    ///                 // Automatically causes the transaction to roll back.
-    ///                 return Err("device reading was not found".to_string());
-    ///             }
     ///
-    ///             // Execute update queries within the same transaction. If any fail, the transaction is rolled back.
-    ///             tx.execute_query("UPDATE device_settings SET fan_mode = 'cool' WHERE device_id = 42")
-    ///                 .await?;
-    ///             tx.execute_query("UPDATE device_settings SET low_battery_alert = true WHERE device_id = 42")
-    ///                 .await?;
-    ///
-    ///             // The transaction is automatically committed on success.
-    ///             Ok(readings.len())
-    ///         })
-    ///     })
-    ///     .await;
+    /// ```no_run
+    /// # use rust_db_lib::{DataStore, ParameterizedQuery};
+    /// # async fn example<S, T, U>(store: S) -> Result<(), rust_db_lib::DataStoreError>
+    /// # where
+    /// #     S: DataStore<T, U>,
+    /// #     T: rust_db_lib::DataVal,
+    /// #     U: rust_db_lib::DataRow<T>,
+    /// # {
+    /// let mut update = ParameterizedQuery::new("UPDATE devices SET enabled = $1 WHERE id = $2");
+    /// update.bind(rust_db_lib::QueryParameter::Bool(true));
+    /// update.bind(rust_db_lib::QueryParameter::I64(42));
+    /// store.execute_transaction(vec![update]).await?;
+    /// # Ok(())
+    /// # }
     /// ```
-    fn with_transaction<'store, R, E, F>(
-        &'store self,
-        operation: F,
-    ) -> impl Future<Output = Result<R, TransactionError<E>>> + Send + 'store
-    where
-        R: Send + 'store,
-        E: Send + 'store,
-        F: for<'tx> FnOnce(&'tx mut Self::Transaction<'store>) -> TransactionFuture<'tx, R, E>
-            + Send
-            + 'store;
-
-    /// Executes `operation` in a transaction serialized against other operations
-    /// using the same named logical resource.
-    fn with_serialized_transaction<'store, R, E, F>(
-        &'store self,
-        resource_name: Cow<'static, str>,
-        operation: F,
-    ) -> impl Future<Output = Result<R, TransactionError<E>>> + Send + 'store
-    where
-        R: Send + 'store,
-        E: Send + 'store,
-        F: for<'tx> FnOnce(&'tx mut Self::Transaction<'store>) -> TransactionFuture<'tx, R, E>
-            + Send
-            + 'store;
-
-    /// Executes a batch of parameterized queries in a single transaction.
     fn execute_transaction(
         &self,
         queries: Vec<ParameterizedQuery>,
     ) -> impl Future<Output = Result<(), DataStoreError>> + Send {
         async move {
-            self.with_transaction::<(), DataStoreError, _>(|transaction| {
-                Box::pin(async move {
-                    for query in queries {
-                        transaction
-                            .execute_parameterized_query(query)
-                            .await
-                            .map_err(transaction_error_to_datastore)?;
-                    }
-                    Ok(())
-                })
-            })
-            .await
-            .map_err(transaction_error_to_datastore)
+            let mut transaction = self
+                .begin_transaction()
+                .await
+                .map_err(transaction_error_to_datastore)?;
+            for query in queries {
+                if let Err(error) = transaction.execute_parameterized_query(query).await {
+                    let _ = transaction.rollback().await;
+                    return Err(transaction_error_to_datastore(error));
+                }
+            }
+            transaction
+                .commit()
+                .await
+                .map_err(transaction_error_to_datastore)
         }
     }
+
+    /// Opens a transaction.
+    ///
+    /// Use this method for multi-step work that requires reads and writes to occur in one transaction.
+    ///
+    /// Dropping the returned transaction without calling [`DataStoreTransaction::commit`] or
+    /// [`DataStoreTransaction::rollback`] rolls it back automatically.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use rust_db_lib::{DataStore, DataStoreTransaction};
+    /// # async fn example<S, T, U>(store: S) -> Result<(), rust_db_lib::TransactionError>
+    /// # where
+    /// #     S: DataStore<T, U>,
+    /// #     T: rust_db_lib::DataVal,
+    /// #     U: rust_db_lib::DataRow<T>,
+    /// # {
+    /// let mut transaction = store.begin_transaction().await?;
+    /// let rows = transaction.execute_query("SELECT id FROM devices WHERE id = 42").await?;
+    /// if rows.is_empty() {
+    ///     transaction.rollback().await?;
+    /// } else {
+    ///     transaction.execute_query("UPDATE devices SET enabled = TRUE WHERE id = 42").await?;
+    ///     transaction.commit().await?;
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn begin_transaction(
+        &self,
+    ) -> impl Future<Output = Result<Self::Transaction<'_>, TransactionError>> + Send;
+
+    /// Opens a transaction serialized with transactions for the named resource.
+    ///
+    /// Transactions started with the same resource name are coordinated by the backend. Dropping
+    /// the returned transaction without calling [`DataStoreTransaction::commit`] or
+    /// [`DataStoreTransaction::rollback`] rolls it back automatically.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use rust_db_lib::{DataStore, DataStoreTransaction};
+    /// # async fn example<S, T, U>(store: S) -> Result<(), rust_db_lib::TransactionError>
+    /// # where
+    /// #     S: DataStore<T, U>,
+    /// #     T: rust_db_lib::DataVal,
+    /// #     U: rust_db_lib::DataRow<T>,
+    /// # {
+    /// let mut transaction = store.begin_serialized_transaction("device:42").await?;
+    /// transaction.execute_query("UPDATE devices SET enabled = TRUE WHERE id = 42").await?;
+    /// transaction.commit().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn begin_serialized_transaction(
+        &self,
+        resource_name: impl Into<Cow<'static, str>> + Send,
+    ) -> impl Future<Output = Result<Self::Transaction<'_>, TransactionError>> + Send;
 }
 
-fn transaction_error_to_datastore<E: Display>(error: TransactionError<E>) -> DataStoreError {
+fn transaction_error_to_datastore(error: TransactionError) -> DataStoreError {
     match error {
+        TransactionError::DatabaseError(error) => error,
         TransactionError::Retryable => DataStoreError {
             details: "transaction conflict (retryable)".to_string(),
         },
-        TransactionError::OperationError(error) => DataStoreError {
-            details: format!("transaction operation failed: {}", error),
-        },
-        TransactionError::DatabaseError(error) => error,
     }
 }

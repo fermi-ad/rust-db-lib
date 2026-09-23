@@ -341,50 +341,48 @@ async fn test_data_store_transaction_with_queries() {
         store.captured_operations(),
         vec![
             Operation::TransactionBegin(None),
-            Operation::ParameterizedQuery(q1),
-            Operation::ParameterizedQuery(q2),
+            Operation::TransactionQuery(q1),
+            Operation::TransactionQuery(q2),
             Operation::TransactionCommit,
         ]
     );
 }
 
 #[tokio::test]
-async fn test_closure_transaction_records_policy_and_reads() {
+async fn test_dropped_transaction_rolls_back() {
+    let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
+    let transaction = store.begin_transaction().await.unwrap();
+    drop(transaction);
+    assert_eq!(
+        store.captured_operations(),
+        vec![
+            Operation::TransactionBegin(None),
+            Operation::TransactionRollback,
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_scoped_transaction_records_policy_and_reads() {
     let store = TestDataStore::new(vec![TestRow {
         data: "row".to_string(),
     }]);
-    let rows = store
-        .with_serialized_transaction("users".into(), |transaction| {
-            Box::pin(async move { transaction.execute_query("SELECT * FROM users").await })
-        })
+    let mut transaction = store
+        .begin_serialized_transaction(Cow::Borrowed("users"))
+        .await
+        .unwrap();
+    let rows = transaction
+        .execute_query("SELECT * FROM users")
         .await
         .unwrap();
     assert_eq!(rows[0].get("data").to_string().unwrap(), "row");
+    transaction.commit().await.unwrap();
     assert_eq!(
         store.captured_operations(),
         vec![
             Operation::TransactionBegin(Some("users".into())),
             Operation::Query("SELECT * FROM users".into()),
             Operation::TransactionCommit,
-        ]
-    );
-}
-
-#[tokio::test]
-async fn test_closure_transaction_rolls_back_on_operation_error() {
-    let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
-    let result = store
-        .with_transaction(|_transaction| Box::pin(async { Err::<(), _>(TestError) }))
-        .await;
-    assert!(matches!(
-        result,
-        Err(TransactionError::OperationError(TestError))
-    ));
-    assert_eq!(
-        store.captured_operations(),
-        vec![
-            Operation::TransactionBegin(None),
-            Operation::TransactionRollback,
         ]
     );
 }

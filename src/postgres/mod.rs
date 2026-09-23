@@ -239,7 +239,7 @@ pub struct PostgresTransaction<'a> {
     transaction: sqlx::Transaction<'a, Postgres>,
 }
 
-fn classify_transaction_error<E>(error: Error) -> TransactionError<E> {
+fn classify_transaction_error(error: Error) -> TransactionError {
     match &error {
         Error::Database(database_error) => match database_error.code().as_deref() {
             Some("40001") | Some("40P01") => TransactionError::Retryable,
@@ -249,16 +249,12 @@ fn classify_transaction_error<E>(error: Error) -> TransactionError<E> {
     }
 }
 
-// FNV-1a 64-bit parameters, from the standard FNV specification.
-const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-const FNV_PRIME: u64 = 0x100000001b3;
-
-fn resource_lock_key(resource_name: &str) -> i64 {
+fn resource_lock_key(resource: &str) -> i64 {
     // FNV-1a gives a deterministic key without exposing backend-specific encoding to callers.
-    let mut hash = FNV_OFFSET_BASIS;
-    for byte in resource_name.as_bytes() {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in resource.as_bytes() {
         hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(FNV_PRIME);
+        hash = hash.wrapping_mul(0x100000001b3);
     }
     hash as i64
 }
@@ -287,6 +283,20 @@ impl<'a> DataStoreTransaction<PostgresDataVal, PostgresDataRow> for PostgresTran
             .fetch_all(&mut *self.transaction)
             .await
             .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
+            .map_err(classify_transaction_error)
+    }
+
+    async fn commit(self) -> Result<(), TransactionError> {
+        self.transaction
+            .commit()
+            .await
+            .map_err(classify_transaction_error)
+    }
+
+    async fn rollback(self) -> Result<(), TransactionError> {
+        self.transaction
+            .rollback()
+            .await
             .map_err(classify_transaction_error)
     }
 }
@@ -336,92 +346,40 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             .map_err(DataStoreError::from)
     }
 
-    async fn with_transaction<'store, R, E, F>(
-        &'store self,
-        operation: F,
-    ) -> Result<R, TransactionError<E>>
-    where
-        R: Send + 'store,
-        E: Send + 'store,
-        F: for<'tx> FnOnce(
-                &'tx mut Self::Transaction<'store>,
-            ) -> super::TransactionFuture<'tx, R, E>
-            + Send
-            + 'store,
-    {
-        self.handle_transaction(
-            self.db_pool
-                .begin()
-                .await
-                .map_err(classify_transaction_error::<E>)?,
-            operation,
-        )
-        .await
+    async fn begin_transaction(&self) -> Result<Self::Transaction<'_>, TransactionError> {
+        let transaction = self
+            .db_pool
+            .begin()
+            .await
+            .map_err(classify_transaction_error)?;
+        Ok(PostgresTransaction { transaction })
     }
 
-    async fn with_serialized_transaction<'store, R, E, F>(
-        &'store self,
-        resource_name: Cow<'static, str>,
-        operation: F,
-    ) -> Result<R, TransactionError<E>>
-    where
-        R: Send + 'store,
-        E: Send + 'store,
-        F: for<'tx> FnOnce(
-                &'tx mut Self::Transaction<'store>,
-            ) -> super::TransactionFuture<'tx, R, E>
-            + Send
-            + 'store,
-    {
+    async fn begin_serialized_transaction(
+        &self,
+        resource_name: impl Into<Cow<'static, str>> + Send,
+    ) -> Result<Self::Transaction<'_>, TransactionError> {
         let mut transaction = self
             .db_pool
             .begin()
             .await
-            .map_err(classify_transaction_error::<E>)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .map_err(classify_transaction_error)?;
+        if let Err(error) = sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
-            .map_err(classify_transaction_error::<E>)?;
-        sqlx::query("SELECT pg_advisory_xact_lock($1)")
-            .bind(resource_lock_key(resource_name.as_ref()))
-            .execute(&mut *transaction)
-            .await
-            .map_err(classify_transaction_error::<E>)?;
-        self.handle_transaction(transaction, operation).await
-    }
-}
-
-impl PostgresDataStore {
-    async fn handle_transaction<'store, R, E, F>(
-        &'store self,
-        transaction: sqlx::Transaction<'store, Postgres>,
-        operation: F,
-    ) -> Result<R, TransactionError<E>>
-    where
-        R: Send + 'store,
-        E: Send + 'store,
-        F: for<'tx> FnOnce(
-                &'tx mut PostgresTransaction<'store>,
-            ) -> super::TransactionFuture<'tx, R, E>
-            + Send
-            + 'store,
-    {
-        let mut transaction = PostgresTransaction { transaction };
-        match operation(&mut transaction).await {
-            Ok(value) => transaction
-                .transaction
-                .commit()
-                .await
-                .map_err(classify_transaction_error::<E>)
-                .map(|()| value),
-            Err(error) => {
-                transaction
-                    .transaction
-                    .rollback()
-                    .await
-                    .map_err(classify_transaction_error::<E>)?;
-                Err(TransactionError::OperationError(error))
-            }
+        {
+            let _ = transaction.rollback().await;
+            return Err(classify_transaction_error(error));
         }
+        let lock_key = resource_lock_key(resource_name.into().as_ref());
+        if let Err(error) = sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(lock_key)
+            .execute(&mut *transaction)
+            .await
+        {
+            let _ = transaction.rollback().await;
+            return Err(classify_transaction_error(error));
+        }
+        Ok(PostgresTransaction { transaction })
     }
 }

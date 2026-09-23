@@ -7,6 +7,7 @@ use super::{
 use chrono::{DateTime, Utc};
 use std::{
     borrow::Cow,
+    cell::Cell,
     error::Error,
     fmt::{self, Display, Formatter},
     sync::Mutex,
@@ -187,7 +188,11 @@ pub enum Operation {
     Query(Cow<'static, str>),
     /// A query passed to [`execute_parameterized_query`](DataStore::execute_parameterized_query).
     ParameterizedQuery(ParameterizedQuery),
-    /// An transaction was opened, with an optional resource name for serialized transactions.
+    /// A batch of queries passed to [`execute_transaction`](DataStore::execute_transaction).
+    Transaction(Vec<ParameterizedQuery>),
+    /// A transaction-scoped operation.
+    TransactionQuery(ParameterizedQuery),
+    /// A transaction was opened. The optional resource name identifies a serialized transaction.
     TransactionBegin(Option<Cow<'static, str>>),
     /// A transaction was committed.
     TransactionCommit,
@@ -197,6 +202,19 @@ pub enum Operation {
 
 pub struct TestTransaction<'a, T: DataRow<TestVal> + Clone> {
     store: &'a TestDataStore<T>,
+    completed: Cell<bool>,
+}
+
+impl<T: DataRow<TestVal> + Clone> Drop for TestTransaction<'_, T> {
+    fn drop(&mut self) {
+        if !self.completed.get() {
+            self.store
+                .operations
+                .lock()
+                .unwrap()
+                .push(Operation::TransactionRollback);
+        }
+    }
 }
 
 impl<T: DataRow<TestVal> + Clone> DataStoreTransaction<TestVal, T> for TestTransaction<'_, T> {
@@ -220,8 +238,28 @@ impl<T: DataRow<TestVal> + Clone> DataStoreTransaction<TestVal, T> for TestTrans
             .operations
             .lock()
             .unwrap()
-            .push(Operation::ParameterizedQuery(parameterized_query));
+            .push(Operation::TransactionQuery(parameterized_query));
         Ok(self.store.data.clone())
+    }
+
+    async fn commit(self) -> Result<(), TransactionError> {
+        self.completed.set(true);
+        self.store
+            .operations
+            .lock()
+            .unwrap()
+            .push(Operation::TransactionCommit);
+        Ok(())
+    }
+
+    async fn rollback(self) -> Result<(), TransactionError> {
+        self.completed.set(true);
+        self.store
+            .operations
+            .lock()
+            .unwrap()
+            .push(Operation::TransactionRollback);
+        Ok(())
     }
 }
 
@@ -280,77 +318,29 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         Ok(self.data.clone())
     }
 
-    async fn with_transaction<'store, R, E, F>(
-        &'store self,
-        operation: F,
-    ) -> Result<R, TransactionError<E>>
-    where
-        R: Send + 'store,
-        E: Send + 'store,
-        F: for<'tx> FnOnce(
-                &'tx mut Self::Transaction<'store>,
-            ) -> super::TransactionFuture<'tx, R, E>
-            + Send
-            + 'store,
-    {
+    async fn begin_transaction(&self) -> Result<Self::Transaction<'_>, TransactionError> {
         self.operations
             .lock()
             .unwrap()
             .push(Operation::TransactionBegin(None));
-        let mut transaction = TestTransaction { store: self };
-        match operation(&mut transaction).await {
-            Ok(value) => {
-                self.operations
-                    .lock()
-                    .unwrap()
-                    .push(Operation::TransactionCommit);
-                Ok(value)
-            }
-            Err(error) => {
-                self.operations
-                    .lock()
-                    .unwrap()
-                    .push(Operation::TransactionRollback);
-                Err(TransactionError::OperationError(error))
-            }
-        }
+        Ok(TestTransaction {
+            store: self,
+            completed: Cell::new(false),
+        })
     }
 
-    async fn with_serialized_transaction<'store, R, E, F>(
-        &'store self,
-        resource_name: Cow<'static, str>,
-        operation: F,
-    ) -> Result<R, TransactionError<E>>
-    where
-        R: Send + 'store,
-        E: Send + 'store,
-        F: for<'tx> FnOnce(
-                &'tx mut Self::Transaction<'store>,
-            ) -> super::TransactionFuture<'tx, R, E>
-            + Send
-            + 'store,
-    {
+    async fn begin_serialized_transaction(
+        &self,
+        resource_name: impl Into<Cow<'static, str>> + Send,
+    ) -> Result<Self::Transaction<'_>, TransactionError> {
         self.operations
             .lock()
             .unwrap()
-            .push(Operation::TransactionBegin(Some(resource_name)));
-        let mut transaction = TestTransaction { store: self };
-        match operation(&mut transaction).await {
-            Ok(value) => {
-                self.operations
-                    .lock()
-                    .unwrap()
-                    .push(Operation::TransactionCommit);
-                Ok(value)
-            }
-            Err(error) => {
-                self.operations
-                    .lock()
-                    .unwrap()
-                    .push(Operation::TransactionRollback);
-                Err(TransactionError::OperationError(error))
-            }
-        }
+            .push(Operation::TransactionBegin(Some(resource_name.into())));
+        Ok(TestTransaction {
+            store: self,
+            completed: Cell::new(false),
+        })
     }
 }
 impl<T: DataRow<TestVal> + Clone> Clone for TestDataStore<T> {
