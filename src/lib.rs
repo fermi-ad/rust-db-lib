@@ -211,12 +211,14 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
         Self: 'a;
 
     /// Executes a SQL statement with no bound parameters.
+    /// For queries with user input, use [`execute_parameterized_query`](Self::execute_parameterized_query).
     fn execute_query(
         &self,
         query: impl Into<Cow<'static, str>> + Send,
     ) -> impl Future<Output = Result<Vec<U>, DataStoreError>> + Send;
 
     /// Executes a fully constructed parameterized query.
+    /// Values for each of the parameters must have been bound prior to calling this method.
     fn execute_parameterized_query(
         &self,
         parameterized_query: ParameterizedQuery,
