@@ -341,8 +341,8 @@ async fn test_data_store_transaction_with_queries() {
         store.captured_operations(),
         vec![
             Operation::TransactionBegin(None),
-            Operation::TransactionQuery(q1),
-            Operation::TransactionQuery(q2),
+            Operation::ParameterizedQuery(q1),
+            Operation::ParameterizedQuery(q2),
             Operation::TransactionCommit,
         ]
     );

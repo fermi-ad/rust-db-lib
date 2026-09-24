@@ -188,10 +188,6 @@ pub enum Operation {
     Query(Cow<'static, str>),
     /// A query passed to [`execute_parameterized_query`](DataStore::execute_parameterized_query).
     ParameterizedQuery(ParameterizedQuery),
-    /// A batch of queries passed to [`execute_transaction`](DataStore::execute_transaction).
-    Transaction(Vec<ParameterizedQuery>),
-    /// A transaction-scoped operation.
-    TransactionQuery(ParameterizedQuery),
     /// A transaction was opened. The optional resource name identifies a serialized transaction.
     TransactionBegin(Option<Cow<'static, str>>),
     /// A transaction was committed.
@@ -238,7 +234,7 @@ impl<T: DataRow<TestVal> + Clone> DataStoreTransaction<TestVal, T> for TestTrans
             .operations
             .lock()
             .unwrap()
-            .push(Operation::TransactionQuery(parameterized_query));
+            .push(Operation::ParameterizedQuery(parameterized_query));
         Ok(self.store.data.clone())
     }
 
