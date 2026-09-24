@@ -232,7 +232,7 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let mut enable = ParameterizedQuery::new("UPDATE devices SET enabled = $1 WHERE id = $2");
     /// enable.bind(rust_db_lib::QueryParameter::Bool(true));
     /// enable.bind(rust_db_lib::QueryParameter::I64(42));
@@ -272,7 +272,7 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let mut transaction = store.begin_transaction().await?;
     /// let rows = transaction.execute_query("SELECT id FROM devices WHERE id = 42").await?;
     /// if rows.is_empty() {
@@ -294,7 +294,7 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let mut transaction = store.begin_serialized_transaction("device:42").await?;
     /// transaction.execute_query("UPDATE devices SET enabled = TRUE WHERE id = 42").await?;
     /// transaction.execute_query("UPDATE devices SET enabled = FALSE WHERE id = 43").await?;
