@@ -160,24 +160,6 @@ impl ParameterizedQuery {
     }
 }
 
-/// Failure opening or completing a transaction.
-#[derive(Clone, Debug)]
-pub enum TransactionError {
-    /// The transaction conflicted with concurrent work and may succeed if retried.
-    Retryable,
-    /// Any other transaction failure.
-    DatabaseError(DataStoreError),
-}
-impl Display for TransactionError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Retryable => write!(f, "transaction conflict (retryable)"),
-            Self::DatabaseError(error) => Display::fmt(error, f),
-        }
-    }
-}
-impl Error for TransactionError {}
-
 /// Operations available on an open transaction.
 pub trait DataStoreTransaction<T: DataVal, U: DataRow<T>>: Send {
     /// Executes an unparameterized query within this transaction.
@@ -202,6 +184,24 @@ pub trait DataStoreTransaction<T: DataVal, U: DataRow<T>>: Send {
     /// Rolls back this transaction and discards all changes made within it.
     fn rollback(self) -> impl Future<Output = Result<(), TransactionError>> + Send;
 }
+
+/// Failure opening or completing a transaction.
+#[derive(Clone, Debug)]
+pub enum TransactionError {
+    /// The transaction conflicted with concurrent work and may succeed if retried.
+    Retryable,
+    /// Any other transaction failure.
+    DatabaseError(DataStoreError),
+}
+impl Display for TransactionError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Retryable => write!(f, "transaction conflict (retryable)"),
+            Self::DatabaseError(error) => Display::fmt(error, f),
+        }
+    }
+}
+impl Error for TransactionError {}
 
 /// Abstraction for a data store capable of executing queries.
 pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
@@ -230,20 +230,14 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// # use rust_db_lib::{DataStore, ParameterizedQuery};
-    /// # async fn example<S, T, U>(store: S) -> Result<(), rust_db_lib::DataStoreError>
-    /// # where
-    /// #     S: DataStore<T, U>,
-    /// #     T: rust_db_lib::DataVal,
-    /// #     U: rust_db_lib::DataRow<T>,
-    /// # {
-    /// let mut update = ParameterizedQuery::new("UPDATE devices SET enabled = $1 WHERE id = $2");
-    /// update.bind(rust_db_lib::QueryParameter::Bool(true));
-    /// update.bind(rust_db_lib::QueryParameter::I64(42));
-    /// store.execute_transaction(vec![update]).await?;
-    /// # Ok(())
-    /// # }
+    /// ```rust
+    /// let mut enable = ParameterizedQuery::new("UPDATE devices SET enabled = $1 WHERE id = $2");
+    /// enable.bind(rust_db_lib::QueryParameter::Bool(true));
+    /// enable.bind(rust_db_lib::QueryParameter::I64(42));
+    /// let mut disable = ParameterizedQuery::new("UPDATE devices SET enabled = $1 WHERE id = $2");
+    /// disable.bind(rust_db_lib::QueryParameter::Bool(false));
+    /// disable.bind(rust_db_lib::QueryParameter::I64(43));
+    /// store.execute_transaction(vec![enable, disable]).await?;
     /// ```
     fn execute_transaction(
         &self,
@@ -269,21 +263,14 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
 
     /// Opens a transaction.
     ///
-    /// Use this method for multi-step work that requires reads and writes to occur in one transaction.
+    /// Use this method for multi-step work that requires processing between queries.
     ///
     /// Dropping the returned transaction without calling [`DataStoreTransaction::commit`] or
     /// [`DataStoreTransaction::rollback`] rolls it back automatically.
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// # use rust_db_lib::{DataStore, DataStoreTransaction};
-    /// # async fn example<S, T, U>(store: S) -> Result<(), rust_db_lib::TransactionError>
-    /// # where
-    /// #     S: DataStore<T, U>,
-    /// #     T: rust_db_lib::DataVal,
-    /// #     U: rust_db_lib::DataRow<T>,
-    /// # {
+    /// ```rust
     /// let mut transaction = store.begin_transaction().await?;
     /// let rows = transaction.execute_query("SELECT id FROM devices WHERE id = 42").await?;
     /// if rows.is_empty() {
@@ -292,8 +279,6 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     ///     transaction.execute_query("UPDATE devices SET enabled = TRUE WHERE id = 42").await?;
     ///     transaction.commit().await?;
     /// }
-    /// # Ok(())
-    /// # }
     /// ```
     fn begin_transaction(
         &self,
@@ -307,19 +292,11 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// # use rust_db_lib::{DataStore, DataStoreTransaction};
-    /// # async fn example<S, T, U>(store: S) -> Result<(), rust_db_lib::TransactionError>
-    /// # where
-    /// #     S: DataStore<T, U>,
-    /// #     T: rust_db_lib::DataVal,
-    /// #     U: rust_db_lib::DataRow<T>,
-    /// # {
+    /// ```rust
     /// let mut transaction = store.begin_serialized_transaction("device:42").await?;
     /// transaction.execute_query("UPDATE devices SET enabled = TRUE WHERE id = 42").await?;
+    /// transaction.execute_query("UPDATE devices SET enabled = FALSE WHERE id = 43").await?;
     /// transaction.commit().await?;
-    /// # Ok(())
-    /// # }
     /// ```
     fn begin_serialized_transaction(
         &self,
