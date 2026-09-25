@@ -318,30 +318,6 @@ impl DataStore for PostgresDataStore {
             .map_err(DataStoreError::from)
     }
 
-    async fn execute_transaction(
-        &self,
-        queries: Vec<ParameterizedQuery>,
-    ) -> Result<(), DataStoreError> {
-        let mut tx = self.db_pool.begin().await.map_err(DataStoreError::from)?;
-        for parameterized_query in queries {
-            let query = build_query(parameterized_query);
-            if let Err(err) = query.execute(&mut *tx).await {
-                let query_err = DataStoreError::from(err);
-                let details = match tx.rollback().await {
-                    Ok(()) => query_err.details,
-                    Err(rollback_err) => {
-                        format!(
-                            "{} (rollback also failed: {rollback_err:?})",
-                            query_err.details
-                        )
-                    }
-                };
-                return Err(DataStoreError { details });
-            }
-        }
-        tx.commit().await.map_err(DataStoreError::from)
-    }
-
     async fn begin_transaction(&self) -> Result<Self::Transaction, TransactionError> {
         let transaction = self
             .db_pool
