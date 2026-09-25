@@ -249,21 +249,6 @@ fn classify_transaction_error(error: Error) -> TransactionError {
     }
 }
 
-/// The FNV-1a 64-bit offset basis used to initialize resource lock key hashes.
-const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-/// The FNV-1a 64-bit prime used to mix each byte into a resource lock key hash.
-const FNV_PRIME: u64 = 0x100000001b3;
-
-fn resource_lock_key(resource: &str) -> i64 {
-    // FNV-1a gives a deterministic key without exposing backend-specific encoding to callers.
-    let mut hash = FNV_OFFSET_BASIS;
-    for byte in resource.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    hash as i64
-}
-
 impl<'a> DataStoreTransaction<PostgresDataVal, PostgresDataRow> for PostgresTransaction<'a> {
     async fn execute_query(
         &mut self,
@@ -357,34 +342,6 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             .begin()
             .await
             .map_err(classify_transaction_error)?;
-        Ok(PostgresTransaction { transaction })
-    }
-
-    async fn begin_serialized_transaction(
-        &self,
-        resource_name: impl Into<Cow<'static, str>> + Send,
-    ) -> Result<Self::Transaction<'_>, TransactionError> {
-        let mut transaction = self
-            .db_pool
-            .begin()
-            .await
-            .map_err(classify_transaction_error)?;
-        if let Err(error) = sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut *transaction)
-            .await
-        {
-            let _ = transaction.rollback().await;
-            return Err(classify_transaction_error(error));
-        }
-        let lock_key = resource_lock_key(resource_name.into().as_ref());
-        if let Err(error) = sqlx::query("SELECT pg_advisory_xact_lock($1)")
-            .bind(lock_key)
-            .execute(&mut *transaction)
-            .await
-        {
-            let _ = transaction.rollback().await;
-            return Err(classify_transaction_error(error));
-        }
         Ok(PostgresTransaction { transaction })
     }
 }

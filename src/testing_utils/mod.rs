@@ -188,8 +188,8 @@ pub enum Operation {
     Query(Cow<'static, str>),
     /// A query passed to [`execute_parameterized_query`](DataStore::execute_parameterized_query).
     ParameterizedQuery(ParameterizedQuery),
-    /// A transaction was opened. The optional resource name identifies a serialized transaction.
-    TransactionBegin(Option<Cow<'static, str>>),
+    /// A transaction was opened.
+    TransactionBegin,
     /// A transaction was committed.
     TransactionCommit,
     /// A transaction was rolled back.
@@ -318,21 +318,7 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         self.operations
             .lock()
             .unwrap()
-            .push(Operation::TransactionBegin(None));
-        Ok(TestTransaction {
-            store: self,
-            completed: Cell::new(false),
-        })
-    }
-
-    async fn begin_serialized_transaction(
-        &self,
-        resource_name: impl Into<Cow<'static, str>> + Send,
-    ) -> Result<Self::Transaction<'_>, TransactionError> {
-        self.operations
-            .lock()
-            .unwrap()
-            .push(Operation::TransactionBegin(Some(resource_name.into())));
+            .push(Operation::TransactionBegin);
         Ok(TestTransaction {
             store: self,
             completed: Cell::new(false),

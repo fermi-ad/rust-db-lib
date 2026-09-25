@@ -285,25 +285,6 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     fn begin_transaction(
         &self,
     ) -> impl Future<Output = Result<Self::Transaction<'_>, TransactionError>> + Send;
-
-    /// Opens a transaction serialized with transactions for the named resource.
-    ///
-    /// Transactions started with the same resource name are coordinated by the backend. Dropping
-    /// the returned transaction without calling [`DataStoreTransaction::commit`] or
-    /// [`DataStoreTransaction::rollback`] rolls it back automatically.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// let mut transaction = store.begin_serialized_transaction("device:42").await?;
-    /// transaction.execute_query("UPDATE devices SET enabled = TRUE WHERE id = 42").await?;
-    /// transaction.execute_query("UPDATE devices SET enabled = FALSE WHERE id = 43").await?;
-    /// transaction.commit().await?;
-    /// ```
-    fn begin_serialized_transaction(
-        &self,
-        resource_name: impl Into<Cow<'static, str>> + Send,
-    ) -> impl Future<Output = Result<Self::Transaction<'_>, TransactionError>> + Send;
 }
 
 fn transaction_error_to_datastore(error: TransactionError) -> DataStoreError {

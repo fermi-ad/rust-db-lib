@@ -319,10 +319,7 @@ async fn test_data_store_transaction_empty_batch() {
     assert!(result.is_ok());
     assert_eq!(
         store.captured_operations(),
-        vec![
-            Operation::TransactionBegin(None),
-            Operation::TransactionCommit,
-        ]
+        vec![Operation::TransactionBegin, Operation::TransactionCommit,]
     );
 }
 
@@ -340,7 +337,7 @@ async fn test_data_store_transaction_with_queries() {
     assert_eq!(
         store.captured_operations(),
         vec![
-            Operation::TransactionBegin(None),
+            Operation::TransactionBegin,
             Operation::ParameterizedQuery(q1),
             Operation::ParameterizedQuery(q2),
             Operation::TransactionCommit,
@@ -355,34 +352,6 @@ async fn test_dropped_transaction_rolls_back() {
     drop(transaction);
     assert_eq!(
         store.captured_operations(),
-        vec![
-            Operation::TransactionBegin(None),
-            Operation::TransactionRollback,
-        ]
-    );
-}
-
-#[tokio::test]
-async fn test_scoped_transaction_records_policy_and_reads() {
-    let store = TestDataStore::new(vec![TestRow {
-        data: "row".to_string(),
-    }]);
-    let mut transaction = store
-        .begin_serialized_transaction(Cow::Borrowed("users"))
-        .await
-        .unwrap();
-    let rows = transaction
-        .execute_query("SELECT * FROM users")
-        .await
-        .unwrap();
-    assert_eq!(rows[0].get("data").to_string().unwrap(), "row");
-    transaction.commit().await.unwrap();
-    assert_eq!(
-        store.captured_operations(),
-        vec![
-            Operation::TransactionBegin(Some("users".into())),
-            Operation::Query("SELECT * FROM users".into()),
-            Operation::TransactionCommit,
-        ]
+        vec![Operation::TransactionBegin, Operation::TransactionRollback,]
     );
 }
