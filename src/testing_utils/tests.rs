@@ -319,7 +319,7 @@ async fn test_data_store_transaction_empty_batch() {
     assert!(result.is_ok());
     assert_eq!(
         store.captured_operations(),
-        vec![Operation::Transaction(vec![])]
+        vec![Operation::TransactionBegin, Operation::TransactionCommit,]
     );
 }
 
@@ -336,6 +336,22 @@ async fn test_data_store_transaction_with_queries() {
     assert!(result.is_ok());
     assert_eq!(
         store.captured_operations(),
-        vec![Operation::Transaction(vec![q1, q2])]
+        vec![
+            Operation::TransactionBegin,
+            Operation::ParameterizedQuery(q1),
+            Operation::ParameterizedQuery(q2),
+            Operation::TransactionCommit,
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_dropped_transaction_rolls_back() {
+    let store: TestDataStore<TestRow> = TestDataStore::new(vec![]);
+    let transaction = store.begin_transaction().await.unwrap();
+    drop(transaction);
+    assert_eq!(
+        store.captured_operations(),
+        vec![Operation::TransactionBegin, Operation::TransactionRollback,]
     );
 }

@@ -1,9 +1,13 @@
 //! Rust DB Lib Testing Utilities
 
-use super::{DataRow, DataStore, DataStoreError, DataVal, ParameterizedQuery};
+use super::{
+    DataRow, DataStore, DataStoreError, DataStoreTransaction, DataVal, ParameterizedQuery,
+    TransactionError,
+};
 use chrono::{DateTime, Utc};
 use std::{
     borrow::Cow,
+    cell::Cell,
     error::Error,
     fmt::{self, Display, Formatter},
     sync::Mutex,
@@ -184,8 +188,75 @@ pub enum Operation {
     Query(Cow<'static, str>),
     /// A query passed to [`execute_parameterized_query`](DataStore::execute_parameterized_query).
     ParameterizedQuery(ParameterizedQuery),
-    /// A batch of queries passed to [`execute_transaction`](DataStore::execute_transaction).
-    Transaction(Vec<ParameterizedQuery>),
+    /// A transaction was opened.
+    TransactionBegin,
+    /// A transaction was committed.
+    TransactionCommit,
+    /// A transaction was rolled back.
+    TransactionRollback,
+}
+
+pub struct TestTransaction<'a, T: DataRow<TestVal> + Clone> {
+    store: &'a TestDataStore<T>,
+    completed: Cell<bool>,
+}
+
+impl<T: DataRow<TestVal> + Clone> Drop for TestTransaction<'_, T> {
+    fn drop(&mut self) {
+        if !self.completed.get() {
+            self.store
+                .operations
+                .lock()
+                .unwrap()
+                .push(Operation::TransactionRollback);
+        }
+    }
+}
+
+impl<T: DataRow<TestVal> + Clone> DataStoreTransaction<TestVal, T> for TestTransaction<'_, T> {
+    async fn execute_query(
+        &mut self,
+        query: impl Into<Cow<'static, str>> + Send,
+    ) -> Result<Vec<T>, TransactionError> {
+        self.store
+            .operations
+            .lock()
+            .unwrap()
+            .push(Operation::Query(query.into()));
+        Ok(self.store.data.clone())
+    }
+
+    async fn execute_parameterized_query(
+        &mut self,
+        parameterized_query: ParameterizedQuery,
+    ) -> Result<Vec<T>, TransactionError> {
+        self.store
+            .operations
+            .lock()
+            .unwrap()
+            .push(Operation::ParameterizedQuery(parameterized_query));
+        Ok(self.store.data.clone())
+    }
+
+    async fn commit(self) -> Result<(), TransactionError> {
+        self.completed.set(true);
+        self.store
+            .operations
+            .lock()
+            .unwrap()
+            .push(Operation::TransactionCommit);
+        Ok(())
+    }
+
+    async fn rollback(self) -> Result<(), TransactionError> {
+        self.completed.set(true);
+        self.store
+            .operations
+            .lock()
+            .unwrap()
+            .push(Operation::TransactionRollback);
+        Ok(())
+    }
 }
 
 /// Implementation of [`DataStore`] that can be used in test cases.
@@ -220,6 +291,7 @@ impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
     }
 }
 impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
+    type Transaction<'a> = TestTransaction<'a, T>;
     async fn execute_query(
         &self,
         query: impl Into<Cow<'static, str>> + Send,
@@ -242,15 +314,15 @@ impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
         Ok(self.data.clone())
     }
 
-    async fn execute_transaction(
-        &self,
-        queries: Vec<ParameterizedQuery>,
-    ) -> Result<(), DataStoreError> {
+    async fn begin_transaction(&self) -> Result<Self::Transaction<'_>, TransactionError> {
         self.operations
             .lock()
             .unwrap()
-            .push(Operation::Transaction(queries));
-        Ok(())
+            .push(Operation::TransactionBegin);
+        Ok(TestTransaction {
+            store: self,
+            completed: Cell::new(false),
+        })
     }
 }
 impl<T: DataRow<TestVal> + Clone> Clone for TestDataStore<T> {

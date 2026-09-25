@@ -160,8 +160,56 @@ impl ParameterizedQuery {
     }
 }
 
-/// Abstraction for a data store capable of executing queries
+/// Operations available on an open transaction.
+pub trait DataStoreTransaction<T: DataVal, U: DataRow<T>>: Send {
+    /// Executes an unparameterized query within this transaction.
+    fn execute_query(
+        &mut self,
+        query: impl Into<Cow<'static, str>> + Send,
+    ) -> impl Future<Output = Result<Vec<U>, TransactionError>> + Send;
+
+    /// Executes a parameterized query within this transaction.
+    fn execute_parameterized_query(
+        &mut self,
+        parameterized_query: ParameterizedQuery,
+    ) -> impl Future<Output = Result<Vec<U>, TransactionError>> + Send;
+
+    /// Call [`Self::commit`] to persist the transaction or [`Self::rollback`] to discard it.
+    /// An open transaction that is dropped without being committed or rolled back is rolled back
+    /// automatically by the backend.
+    ///
+    /// Commits this transaction and persists all changes made within it.
+    fn commit(self) -> impl Future<Output = Result<(), TransactionError>> + Send;
+
+    /// Rolls back this transaction and discards all changes made within it.
+    fn rollback(self) -> impl Future<Output = Result<(), TransactionError>> + Send;
+}
+
+/// Failure opening or completing a transaction.
+#[derive(Clone, Debug)]
+pub enum TransactionError {
+    /// The transaction conflicted with concurrent work and may succeed if retried.
+    Retryable,
+    /// Any other transaction failure.
+    DatabaseError(DataStoreError),
+}
+impl Display for TransactionError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Retryable => write!(f, "transaction conflict (retryable)"),
+            Self::DatabaseError(error) => Display::fmt(error, f),
+        }
+    }
+}
+impl Error for TransactionError {}
+
+/// Abstraction for a data store capable of executing queries.
 pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
+    /// The backend-specific handle for an open transaction.
+    type Transaction<'a>: DataStoreTransaction<T, U>
+    where
+        Self: 'a;
+
     /// Executes a SQL statement with no bound parameters.
     /// For queries with user input, use [`execute_parameterized_query`](Self::execute_parameterized_query).
     fn execute_query(
@@ -178,9 +226,72 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
 
     /// Executes a batch of parameterized queries in a single transaction.
     ///
-    /// If any query fails, the transaction is rolled back and an error is returned.
+    /// This is the simplest transaction API for write-only batches. Queries run in order; the
+    /// transaction is committed only when every query succeeds, and is rolled back if a query
+    /// fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let mut enable = ParameterizedQuery::new("UPDATE devices SET enabled = $1 WHERE id = $2");
+    /// enable.bind(rust_db_lib::QueryParameter::Bool(true));
+    /// enable.bind(rust_db_lib::QueryParameter::I64(42));
+    /// let mut disable = ParameterizedQuery::new("UPDATE devices SET enabled = $1 WHERE id = $2");
+    /// disable.bind(rust_db_lib::QueryParameter::Bool(false));
+    /// disable.bind(rust_db_lib::QueryParameter::I64(43));
+    /// store.execute_transaction(vec![enable, disable]).await?;
+    /// ```
     fn execute_transaction(
         &self,
         queries: Vec<ParameterizedQuery>,
-    ) -> impl Future<Output = Result<(), DataStoreError>> + Send;
+    ) -> impl Future<Output = Result<(), DataStoreError>> + Send {
+        async move {
+            let mut transaction = self
+                .begin_transaction()
+                .await
+                .map_err(transaction_error_to_datastore)?;
+            for query in queries {
+                if let Err(error) = transaction.execute_parameterized_query(query).await {
+                    let _ = transaction.rollback().await;
+                    return Err(transaction_error_to_datastore(error));
+                }
+            }
+            transaction
+                .commit()
+                .await
+                .map_err(transaction_error_to_datastore)
+        }
+    }
+
+    /// Opens a transaction.
+    ///
+    /// Use this method for multi-step work that requires processing between queries.
+    ///
+    /// Dropping the returned transaction without calling [`DataStoreTransaction::commit`] or
+    /// [`DataStoreTransaction::rollback`] rolls it back automatically.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let mut transaction = store.begin_transaction().await?;
+    /// let rows = transaction.execute_query("SELECT id FROM devices WHERE id = 42").await?;
+    /// if rows.is_empty() {
+    ///     transaction.rollback().await?;
+    /// } else {
+    ///     transaction.execute_query("UPDATE devices SET enabled = TRUE WHERE id = 42").await?;
+    ///     transaction.commit().await?;
+    /// }
+    /// ```
+    fn begin_transaction(
+        &self,
+    ) -> impl Future<Output = Result<Self::Transaction<'_>, TransactionError>> + Send;
+}
+
+fn transaction_error_to_datastore(error: TransactionError) -> DataStoreError {
+    match error {
+        TransactionError::DatabaseError(error) => error,
+        TransactionError::Retryable => DataStoreError {
+            details: "transaction conflict (retryable)".to_string(),
+        },
+    }
 }
