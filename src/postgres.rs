@@ -2,16 +2,19 @@
 //!
 //! Contains implementations of the core abstractions designed to interact with a PostgreSQL database instance.
 
-use super::{
+use std::{borrow::Cow, time::Duration};
+
+use chrono::{DateTime, Utc};
+use sqlx::{
+    Decode, Error, Executor, Postgres, Row, Value, ValueRef,
+    postgres::{PgArguments, PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgSslMode, PgValue},
+    query::Query,
+};
+
+use crate::{
     DataRow, DataStore, DataStoreError, DataStoreTransaction, DataVal, ParameterizedQuery,
     QueryParameter, TransactionError,
 };
-use chrono::{DateTime, Utc};
-use sqlx::{
-    Decode, Error, Postgres, Row, Value, ValueRef,
-    postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgSslMode, PgValue},
-};
-use std::{borrow::Cow, time::Duration};
 
 impl From<Error> for DataStoreError {
     fn from(value: Error) -> Self {
@@ -194,13 +197,69 @@ impl From<PgRow> for PostgresDataRow {
         Self { row }
     }
 }
-impl DataRow<PostgresDataVal> for PostgresDataRow {
-    fn get(&self, column_name: &str) -> PostgresDataVal {
+impl DataRow for PostgresDataRow {
+    type Val = PostgresDataVal;
+
+    fn get(&self, column_name: &str) -> Self::Val {
         let column_data = match self.row.try_get_raw(column_name) {
             Ok(val) => Ok(ValueRef::to_owned(&val)),
             Err(err) => Err(DataStoreError::from(err)),
         };
         PostgresDataVal { column_data }
+    }
+}
+
+/// An open PostgreSQL transaction.
+pub struct PostgresTransaction {
+    transaction: sqlx::Transaction<'static, Postgres>,
+}
+
+fn classify_transaction_error(error: Error) -> TransactionError {
+    match &error {
+        Error::Database(database_error) => match database_error.code().as_deref() {
+            Some("40001") | Some("40P01") => TransactionError::Retryable,
+            _ => TransactionError::DatabaseError(DataStoreError::from(error)),
+        },
+        _ => TransactionError::DatabaseError(DataStoreError::from(error)),
+    }
+}
+
+impl DataStoreTransaction for PostgresTransaction {
+    type Row = PostgresDataRow;
+
+    async fn execute_query(
+        &mut self,
+        query: impl Into<Cow<'static, str>> + Send,
+    ) -> Result<Vec<Self::Row>, TransactionError> {
+        run_query(
+            sqlx::query(sqlx::AssertSqlSafe(query.into())),
+            &mut *self.transaction,
+        )
+        .await
+        .map_err(classify_transaction_error)
+    }
+
+    async fn execute_parameterized_query(
+        &mut self,
+        parameterized_query: ParameterizedQuery,
+    ) -> Result<Vec<Self::Row>, TransactionError> {
+        run_query(build_query(parameterized_query), &mut *self.transaction)
+            .await
+            .map_err(classify_transaction_error)
+    }
+
+    async fn commit(self) -> Result<(), TransactionError> {
+        self.transaction
+            .commit()
+            .await
+            .map_err(classify_transaction_error)
+    }
+
+    async fn rollback(self) -> Result<(), TransactionError> {
+        self.transaction
+            .rollback()
+            .await
+            .map_err(classify_transaction_error)
     }
 }
 
@@ -234,109 +293,56 @@ impl PostgresDataStore {
             .map_err(DataStoreError::from)
     }
 }
-/// An open PostgreSQL transaction.
-pub struct PostgresTransaction<'a> {
-    transaction: sqlx::Transaction<'a, Postgres>,
-}
+impl DataStore for PostgresDataStore {
+    type Row = PostgresDataRow;
+    type Transaction = PostgresTransaction;
 
-fn classify_transaction_error(error: Error) -> TransactionError {
-    match &error {
-        Error::Database(database_error) => match database_error.code().as_deref() {
-            Some("40001") | Some("40P01") => TransactionError::Retryable,
-            _ => TransactionError::DatabaseError(DataStoreError::from(error)),
-        },
-        _ => TransactionError::DatabaseError(DataStoreError::from(error)),
-    }
-}
-
-impl<'a> DataStoreTransaction<PostgresDataVal, PostgresDataRow> for PostgresTransaction<'a> {
-    async fn execute_query(
-        &mut self,
-        query: impl Into<Cow<'static, str>> + Send,
-    ) -> Result<Vec<PostgresDataRow>, TransactionError> {
-        sqlx::query(sqlx::AssertSqlSafe(query.into()))
-            .fetch_all(&mut *self.transaction)
-            .await
-            .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
-            .map_err(classify_transaction_error)
-    }
-
-    async fn execute_parameterized_query(
-        &mut self,
-        parameterized_query: ParameterizedQuery,
-    ) -> Result<Vec<PostgresDataRow>, TransactionError> {
-        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(parameterized_query.statement));
-        for parameter in parameterized_query.bindings {
-            query_builder = bind_parameter(query_builder, parameter);
-        }
-        query_builder
-            .fetch_all(&mut *self.transaction)
-            .await
-            .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
-            .map_err(classify_transaction_error)
-    }
-
-    async fn commit(self) -> Result<(), TransactionError> {
-        self.transaction
-            .commit()
-            .await
-            .map_err(classify_transaction_error)
-    }
-
-    async fn rollback(self) -> Result<(), TransactionError> {
-        self.transaction
-            .rollback()
-            .await
-            .map_err(classify_transaction_error)
-    }
-}
-
-fn bind_parameter<'q>(
-    query_builder: sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments>,
-    parameter: QueryParameter,
-) -> sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments> {
-    match parameter {
-        QueryParameter::Bool(val) => query_builder.bind(val),
-        QueryParameter::DateTime(val) => query_builder.bind(val),
-        QueryParameter::I8(val) => query_builder.bind(val),
-        QueryParameter::I16(val) => query_builder.bind(val),
-        QueryParameter::I32(val) => query_builder.bind(val),
-        QueryParameter::I64(val) => query_builder.bind(val),
-        QueryParameter::F32(val) => query_builder.bind(val),
-        QueryParameter::F64(val) => query_builder.bind(val),
-        QueryParameter::Str(val) => query_builder.bind(val),
-    }
-}
-
-impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
-    type Transaction<'a> = PostgresTransaction<'a>;
     async fn execute_query(
         &self,
         query: impl Into<Cow<'static, str>> + Send,
-    ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        sqlx::query(sqlx::AssertSqlSafe(query.into()))
-            .fetch_all(&self.db_pool)
-            .await
-            .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
-            .map_err(DataStoreError::from)
+    ) -> Result<Vec<Self::Row>, DataStoreError> {
+        run_query(
+            sqlx::query(sqlx::AssertSqlSafe(query.into())),
+            &self.db_pool,
+        )
+        .await
+        .map_err(DataStoreError::from)
     }
 
     async fn execute_parameterized_query(
         &self,
         parameterized_query: ParameterizedQuery,
-    ) -> Result<Vec<PostgresDataRow>, DataStoreError> {
-        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(parameterized_query.statement));
-        for parameter in parameterized_query.bindings {
-            query_builder = bind_parameter(query_builder, parameter);
-        }
-        query_builder
-            .fetch_all(&self.db_pool)
+    ) -> Result<Vec<Self::Row>, DataStoreError> {
+        run_query(build_query(parameterized_query), &self.db_pool)
             .await
-            .map(|rows| rows.into_iter().map(PostgresDataRow::from).collect())
             .map_err(DataStoreError::from)
     }
 
-    async fn begin_transaction(&self) -> Result<Self::Transaction<'_>, TransactionError> {
+    async fn execute_transaction(
+        &self,
+        queries: Vec<ParameterizedQuery>,
+    ) -> Result<(), DataStoreError> {
+        let mut tx = self.db_pool.begin().await.map_err(DataStoreError::from)?;
+        for parameterized_query in queries {
+            let query = build_query(parameterized_query);
+            if let Err(err) = query.execute(&mut *tx).await {
+                let query_err = DataStoreError::from(err);
+                let details = match tx.rollback().await {
+                    Ok(()) => query_err.details,
+                    Err(rollback_err) => {
+                        format!(
+                            "{} (rollback also failed: {rollback_err:?})",
+                            query_err.details
+                        )
+                    }
+                };
+                return Err(DataStoreError { details });
+            }
+        }
+        tx.commit().await.map_err(DataStoreError::from)
+    }
+
+    async fn begin_transaction(&self) -> Result<Self::Transaction, TransactionError> {
         let transaction = self
             .db_pool
             .begin()
@@ -344,4 +350,32 @@ impl DataStore<PostgresDataVal, PostgresDataRow> for PostgresDataStore {
             .map_err(classify_transaction_error)?;
         Ok(PostgresTransaction { transaction })
     }
+}
+
+fn build_query<'q>(parameterized_query: ParameterizedQuery) -> Query<'q, Postgres, PgArguments> {
+    let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(parameterized_query.statement));
+    for parameter in parameterized_query.bindings {
+        query_builder = match parameter {
+            QueryParameter::Bool(val) => query_builder.bind(val),
+            QueryParameter::DateTime(val) => query_builder.bind(val),
+            QueryParameter::I8(val) => query_builder.bind(val),
+            QueryParameter::I16(val) => query_builder.bind(val),
+            QueryParameter::I32(val) => query_builder.bind(val),
+            QueryParameter::I64(val) => query_builder.bind(val),
+            QueryParameter::F32(val) => query_builder.bind(val),
+            QueryParameter::F64(val) => query_builder.bind(val),
+            QueryParameter::Str(val) => query_builder.bind(val),
+        }
+    }
+    query_builder
+}
+
+async fn run_query(
+    query: Query<'_, Postgres, PgArguments>,
+    executor: impl Executor<'_, Database = Postgres>,
+) -> Result<Vec<PostgresDataRow>, Error> {
+    query
+        .fetch_all(executor)
+        .await
+        .map(|res| res.into_iter().map(PostgresDataRow::from).collect())
 }
