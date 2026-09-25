@@ -6,12 +6,13 @@ A library for connecting to a database from a Rust app. It encapsulates DB conne
 
 
 ## Interface
-The primary abstraction is the `DataStore<T: DataVal, U: DataRow<T>>` trait. See the rustdoc for full details.
+The primary abstraction is the `DataStore` trait. See the rustdoc for full details.
 
 #### Supported implementations
 - `postgres::PostgresDataVal` — implements `DataVal`
-- `postgres::PostgresDataRow` — implements `DataRow<PostgresDataVal>`
-- `postgres::PostgresDataStore` — implements `DataStore<PostgresDataVal, PostgresDataRow>`
+- `postgres::PostgresDataRow` — implements `DataRow`, with `type Val = PostgresDataVal`
+- `postgres::PostgresDataStore` — implements `DataStore`, with `type Row = PostgresDataRow`
+- `postgres::PostgresTransaction` — implements `DataStoreTransaction`, with `type Row = PostgresDataRow`
 
 #### Connecting to Postgres
 Construct a [`postgres::PostgresConfig`](src/postgres/mod.rs) and pass it to `PostgresDataStore::new()`. Only the connection fields are required; pool and TLS settings have sensible defaults.
