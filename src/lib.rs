@@ -92,9 +92,10 @@ pub trait DataVal: Send + Sync + 'static {
 }
 
 /// Abstraction representing a single row retrieved from a data store
-pub trait DataRow<T: DataVal>: Send + Sync + 'static {
+pub trait DataRow: Send + Sync + 'static {
+    type Val: DataVal;
     /// Generates an instance of [`DataVal`] wrapping the contents of the specified column
-    fn get(&self, column_name: &str) -> T;
+    fn get(&self, column_name: &str) -> Self::Val;
 }
 
 /// Represents a single parameter to be bound to a parameterized query.
@@ -161,18 +162,19 @@ impl ParameterizedQuery {
 }
 
 /// Operations available on an open transaction.
-pub trait DataStoreTransaction<T: DataVal, U: DataRow<T>>: Send {
+pub trait DataStoreTransaction: Send {
+    type Row: DataRow;
     /// Executes an unparameterized query within this transaction.
     fn execute_query(
         &mut self,
         query: impl Into<Cow<'static, str>> + Send,
-    ) -> impl Future<Output = Result<Vec<U>, TransactionError>> + Send;
+    ) -> impl Future<Output = Result<Vec<Self::Row>, TransactionError>> + Send;
 
     /// Executes a parameterized query within this transaction.
     fn execute_parameterized_query(
         &mut self,
         parameterized_query: ParameterizedQuery,
-    ) -> impl Future<Output = Result<Vec<U>, TransactionError>> + Send;
+    ) -> impl Future<Output = Result<Vec<Self::Row>, TransactionError>> + Send;
 
     /// Call [`Self::commit`] to persist the transaction or [`Self::rollback`] to discard it.
     /// An open transaction that is dropped without being committed or rolled back is rolled back
@@ -203,26 +205,25 @@ impl Display for TransactionError {
 }
 impl Error for TransactionError {}
 
-/// Abstraction for a data store capable of executing queries.
-pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
+/// Abstraction for a data store capable of executing queries
+pub trait DataStore: Clone + Send + Sync + 'static {
+    type Row: DataRow;
     /// The backend-specific handle for an open transaction.
-    type Transaction<'a>: DataStoreTransaction<T, U>
-    where
-        Self: 'a;
+    type Transaction: DataStoreTransaction;
 
     /// Executes a SQL statement with no bound parameters.
     /// For queries with user input, use [`execute_parameterized_query`](Self::execute_parameterized_query).
     fn execute_query(
         &self,
         query: impl Into<Cow<'static, str>> + Send,
-    ) -> impl Future<Output = Result<Vec<U>, DataStoreError>> + Send;
+    ) -> impl Future<Output = Result<Vec<Self::Row>, DataStoreError>> + Send;
 
     /// Executes a fully constructed parameterized query.
     /// Values for each of the parameters must have been bound prior to calling this method.
     fn execute_parameterized_query(
         &self,
         parameterized_query: ParameterizedQuery,
-    ) -> impl Future<Output = Result<Vec<U>, DataStoreError>> + Send;
+    ) -> impl Future<Output = Result<Vec<Self::Row>, DataStoreError>> + Send;
 
     /// Executes a batch of parameterized queries in a single transaction.
     ///
@@ -284,7 +285,7 @@ pub trait DataStore<T: DataVal, U: DataRow<T>>: Clone + Send + Sync + 'static {
     /// ```
     fn begin_transaction(
         &self,
-    ) -> impl Future<Output = Result<Self::Transaction<'_>, TransactionError>> + Send;
+    ) -> impl Future<Output = Result<Self::Transaction, TransactionError>> + Send;
 }
 
 fn transaction_error_to_datastore(error: TransactionError) -> DataStoreError {
