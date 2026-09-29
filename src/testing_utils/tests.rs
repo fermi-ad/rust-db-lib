@@ -1,7 +1,135 @@
 //! Tests for the Rust DB Lib Testing Utilities Module
 
+use chrono::{FixedOffset, TimeZone, Utc};
+
 use super::*;
-use crate::QueryParameter;
+use crate::{DataRow, DataStore, DataVal, QueryParameter};
+
+#[test]
+fn test_val_from_supported_types() {
+    assert_eq!(
+        TestVal::from(true),
+        TestVal {
+            test_bool: Some(true),
+            ..TestVal::default()
+        }
+    );
+
+    macro_rules! assert_integer_conversion {
+        ($value:expr, $field:ident) => {
+            assert_eq!(
+                TestVal::from($value),
+                TestVal {
+                    $field: Some($value),
+                    ..TestVal::default()
+                }
+            );
+        };
+    }
+    assert_integer_conversion!(-8_i8, test_i8);
+    assert_integer_conversion!(-16_i16, test_i16);
+    assert_integer_conversion!(-32_i32, test_i32);
+    assert_integer_conversion!(-64_i64, test_i64);
+
+    assert_eq!(
+        TestVal::from(1.25_f32),
+        TestVal {
+            test_f32: Some(1.25),
+            ..TestVal::default()
+        }
+    );
+    assert_eq!(
+        TestVal::from(2.5_f64),
+        TestVal {
+            test_f64: Some(2.5),
+            ..TestVal::default()
+        }
+    );
+    for val in [
+        TestVal::from("borrowed"),
+        TestVal::from(String::from("borrowed")),
+    ] {
+        assert_eq!(
+            val,
+            TestVal {
+                test_string: Some(String::from("borrowed")),
+                ..TestVal::default()
+            }
+        );
+    }
+}
+
+#[test]
+fn test_val_from_datetime_normalizes_time_zone() {
+    let utc = Utc.with_ymd_and_hms(2024, 2, 3, 4, 5, 6).unwrap();
+    let offset = FixedOffset::east_opt(5 * 3600).unwrap();
+    let local = utc.with_timezone(&offset);
+    let expected = TestVal {
+        test_datetime: Some(utc),
+        ..TestVal::default()
+    };
+
+    assert_eq!(TestVal::from(utc), expected);
+    assert_eq!(TestVal::from(local), expected);
+    assert_eq!(TestVal::from(local).to_datetime().unwrap(), utc);
+}
+
+#[tokio::test]
+async fn test_data_store_macro_builds_independent_rows_with_nulls_and_expressions() {
+    let created = Utc.with_ymd_and_hms(2024, 2, 3, 4, 5, 6).unwrap();
+    let store = test_data_store!([
+        [
+            ("name", "first"),
+            ("count", 42),
+            ("active", true),
+            ("optional", None),
+            ("created", created),
+        ],
+        [
+            ("name", String::from("second")),
+            ("count", 43_i64),
+            ("active", false),
+            (
+                "created",
+                created.with_timezone(&FixedOffset::east_opt(3600).unwrap())
+            ),
+        ],
+    ]);
+
+    let rows = store.execute_query("SELECT * FROM mock").await.unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].get("name").to_string().unwrap(), "first");
+    assert_eq!(rows[0].get("count").to_i32().unwrap(), 42);
+    assert!(rows[0].get("count").to_i64().is_err());
+    assert!(rows[0].get("active").to_bool().unwrap());
+    assert_eq!(rows[0].get("created").to_datetime().unwrap(), created);
+    assert_eq!(rows[0].get("optional").to_string_optional().unwrap(), None);
+    assert!(rows[0].get("optional").to_string().is_err());
+    assert_eq!(rows[1].get("name").to_string().unwrap(), "second");
+    assert_eq!(rows[1].get("count").to_i64().unwrap(), 43);
+    assert!(!rows[1].get("active").to_bool().unwrap());
+    assert_eq!(rows[1].get("created").to_datetime().unwrap(), created);
+    assert!(rows[1].get("optional").to_string_optional().is_err());
+    assert!(rows[0].get("missing").to_string_optional().is_err());
+}
+
+#[tokio::test]
+async fn test_data_store_macro_accepts_empty_rows_and_store() {
+    let empty_store = test_data_store!([]);
+    assert!(
+        empty_store
+            .execute_query("SELECT 1")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let store = test_data_store!([[], [("flag", None)]]);
+    let rows = store.execute_query("SELECT 1").await.unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].get("flag").to_bool_optional().is_err());
+    assert_eq!(rows[1].get("flag").to_bool_optional().unwrap(), None);
+}
 
 #[test]
 fn test_val_to_bool() {
@@ -280,28 +408,12 @@ fn test_val_to_datetime_optional() {
 
 #[tokio::test]
 async fn test_data_store_returns_stored_values() {
-    let data1 = TestRow::new(HashMap::from([(
-        "data".to_string(),
-        TestVal {
-            test_string: Some("row1".to_string()),
-            ..TestVal::default()
-        },
-    )]));
-
-    let data2 = TestRow::new(HashMap::from([(
-        "data".to_string(),
-        TestVal {
-            test_string: Some("row2".to_string()),
-            ..TestVal::default()
-        },
-    )]));
-
-    let store = TestDataStore::new(vec![data1.clone(), data2.clone()]);
+    let store = test_data_store!([[("data", "row1")], [("data", "row2")]]);
 
     let simple_results = store.execute_query("SELECT * FROM dummy").await.unwrap();
     assert_eq!(simple_results.len(), 2);
-    assert_eq!(simple_results[0].get("data"), data1.get("data"));
-    assert_eq!(simple_results[1].get("data"), data2.get("data"));
+    assert_eq!(simple_results[0].get("data"), TestVal::from("row1"));
+    assert_eq!(simple_results[1].get("data"), TestVal::from("row2"));
 
     let mut parameterized_query =
         ParameterizedQuery::new("SELECT * FROM dummy WHERE id = $1 AND name = $2");
@@ -316,7 +428,7 @@ async fn test_data_store_returns_stored_values() {
 
 #[tokio::test]
 async fn test_data_store_captures_queries() {
-    let store = TestDataStore::new(vec![]);
+    let store = test_data_store!([]);
 
     let simple_query = "SELECT * FROM dummy";
     store.execute_query(simple_query).await.unwrap();
@@ -346,7 +458,7 @@ async fn test_data_store_captures_queries() {
 
 #[tokio::test]
 async fn test_data_store_transaction_empty_batch() {
-    let store = TestDataStore::new(vec![]);
+    let store = test_data_store!([]);
     let result = store.execute_transaction(vec![]).await;
     assert!(result.is_ok());
     assert_eq!(
@@ -357,7 +469,7 @@ async fn test_data_store_transaction_empty_batch() {
 
 #[tokio::test]
 async fn test_data_store_transaction_with_queries() {
-    let store = TestDataStore::new(vec![]);
+    let store = test_data_store!([]);
     let mut q1 = ParameterizedQuery::new("INSERT INTO t VALUES ($1)");
     q1.bind(QueryParameter::I32(1));
     let mut q2 = ParameterizedQuery::new("INSERT INTO t VALUES ($1)");
@@ -379,7 +491,7 @@ async fn test_data_store_transaction_with_queries() {
 
 #[tokio::test]
 async fn test_dropped_transaction_rolls_back() {
-    let store = TestDataStore::new(vec![]);
+    let store = test_data_store!([]);
     let transaction = store.begin_transaction().await.unwrap();
     drop(transaction);
     assert_eq!(

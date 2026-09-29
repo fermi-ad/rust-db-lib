@@ -1,35 +1,29 @@
-//! A Rust library providing abstractions for interacting with various data stores in a unified manner.
-//! It defines traits for data values, data rows, parameterized queries, and data stores,
-//! along with a Postgres implementation and test utilities.
+//! Shared database abstractions with a PostgreSQL backend and optional testing utilities.
+//!
+//! [`DataStore`] executes queries and opens transactions; [`DataRow`] and [`DataVal`] decode
+//! returned columns. Use [`ParameterizedQuery`] with bound [`QueryParameter`] values for
+//! user-supplied input. A batch of parameterized statements can be run with
+//! [`DataStore::execute_transaction`], or use [`DataStore::begin_transaction`] for an
+//! explicit transaction.
+//!
+//! [`postgres`] provides the PostgreSQL implementation. Enable the `testing-utils` feature
+//! for [`testing_utils`], including a recording test store and the
+//! [`testing_utils::test_data_store!`] fixture macro.
 
-use chrono::{DateTime, Utc};
-use std::{
-    borrow::Cow,
-    error::Error,
-    fmt::{self, Display, Formatter},
-};
+pub use errors::{DataStoreError, TransactionError};
 
 /// Postgres implementation of the traits in this library.
 pub mod postgres;
-
-/// A collection of prebuilt implementations of the traits in this library that are useful for unit tests.
-#[cfg(any(feature = "testing-utils", test))]
+/// Recording mocks and fixture helpers for tests; requires the `testing-utils` feature.
+#[cfg(feature = "testing-utils")]
 pub mod testing_utils;
 
+use chrono::{DateTime, Utc};
+use std::borrow::Cow;
+
+mod errors;
 #[cfg(test)]
 mod tests;
-
-/// Custom error type for [`DataStore`] operations
-#[derive(Clone, Debug)]
-pub struct DataStoreError {
-    details: String,
-}
-impl Display for DataStoreError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "DataStoreError: {}", self.details)
-    }
-}
-impl Error for DataStoreError {}
 
 /// Represents the value stored in a database column. In this intermediate state,
 /// the exact type of the data is unknown. Calling one of the trait methods will attempt to decode
@@ -187,24 +181,6 @@ pub trait DataStoreTransaction: Send {
     fn rollback(self) -> impl Future<Output = Result<(), TransactionError>> + Send;
 }
 
-/// Failure opening or completing a transaction.
-#[derive(Clone, Debug)]
-pub enum TransactionError {
-    /// The transaction conflicted with concurrent work and may succeed if retried.
-    Retryable,
-    /// Any other transaction failure.
-    DatabaseError(DataStoreError),
-}
-impl Display for TransactionError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Retryable => write!(f, "transaction conflict (retryable)"),
-            Self::DatabaseError(error) => Display::fmt(error, f),
-        }
-    }
-}
-impl Error for TransactionError {}
-
 /// Abstraction for a data store capable of executing queries
 pub trait DataStore: Clone + Send + Sync + 'static {
     type Row: DataRow;
@@ -292,7 +268,7 @@ fn transaction_error_to_datastore(error: TransactionError) -> DataStoreError {
     match error {
         TransactionError::DatabaseError(error) => error,
         TransactionError::Retryable => DataStoreError {
-            details: "transaction conflict (retryable)".to_string(),
+            details: error.to_string(),
         },
     }
 }
