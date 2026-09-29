@@ -8,28 +8,16 @@ use chrono::{DateTime, Utc};
 use std::{
     borrow::Cow,
     cell::Cell,
-    error::Error,
-    fmt::{self, Display, Formatter},
-    sync::Mutex,
+    collections::HashMap,
+    sync::{Arc, Mutex},
 };
 
 #[cfg(test)]
 mod tests;
 
-/// A default implementation of [`std::error::Error`] for use in test cases.
-#[derive(Debug)]
-pub struct TestError;
-impl Display for TestError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "TestError!")
-    }
-}
-impl Error for TestError {}
-
 fn generate_error() -> DataStoreError {
-    let err = TestError;
     DataStoreError {
-        details: format!("{err:?}"),
+        details: "No data found for the requested column".to_string(),
     }
 }
 
@@ -38,14 +26,16 @@ fn generate_error() -> DataStoreError {
 /// the corresponding field.
 ///
 /// Regular methods:
-/// If a field is populated, its value is returned. If it is not, an instance of [`TestError`] is generated
+/// If a field is populated, its value is returned. If it is not, an instance of [`DataStoreError`] is generated
 /// and returned.
 ///
 /// Methods ending with `_optional`:
 /// If a field is populated, its value is returned. If it is not, the [`is_nullable`](TestVal::is_nullable)
-/// field is checked. If the field is `true`, [`None`] is returned. Else, an instance of [`TestError`] is
+/// field is checked. If the field is `true`, [`None`] is returned. Else, an instance of [`DataStoreError`] is
 /// generated and returned.
-#[derive(Debug)]
+///
+/// `is_nullable` defaults to `false`.
+#[derive(Clone, Debug, Default)]
 pub struct TestVal {
     pub is_nullable: bool,
     pub test_bool: Option<bool>,
@@ -59,22 +49,6 @@ pub struct TestVal {
     pub test_string: Option<String>,
 }
 impl TestVal {
-    /// Convenience method for generating an instance of [`TestVal`] with all fields set to [`None`].
-    pub fn new() -> Self {
-        Self {
-            is_nullable: true,
-            test_bool: None,
-            test_datetime: None,
-            test_f32: None,
-            test_f64: None,
-            test_i16: None,
-            test_i32: None,
-            test_i64: None,
-            test_i8: None,
-            test_string: None,
-        }
-    }
-
     fn translate<T>(op: Option<T>) -> Result<T, DataStoreError> {
         op.ok_or_else(generate_error)
     }
@@ -85,11 +59,6 @@ impl TestVal {
         } else {
             Err(generate_error())
         }
-    }
-}
-impl Default for TestVal {
-    fn default() -> Self {
-        Self::new()
     }
 }
 impl DataVal for TestVal {
@@ -181,6 +150,30 @@ impl PartialEq for TestVal {
     }
 }
 
+/// Implementation of [`DataRow`] that can be used in test cases.
+///
+/// The [`new`](Self::new) function takes a [`HashMap`] of [`TestVal`] entries keyed by
+/// column name.
+///
+/// Calls to [`get`](Self::get) will look for the corresponding key in the map and return
+/// the value, or will return [`TestVal::default`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct TestRow {
+    cols: HashMap<String, TestVal>,
+}
+impl TestRow {
+    pub fn new(cols: HashMap<String, TestVal>) -> Self {
+        TestRow { cols }
+    }
+}
+impl DataRow for TestRow {
+    type Val = TestVal;
+
+    fn get(&self, column_name: &str) -> Self::Val {
+        self.cols.get(column_name).cloned().unwrap_or_default()
+    }
+}
+
 /// A single operation captured by a [`TestDataStore`], in the form it was passed to the store.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Operation {
@@ -196,15 +189,15 @@ pub enum Operation {
     TransactionRollback,
 }
 
-pub struct TestTransaction<'a, T: DataRow<TestVal> + Clone> {
-    store: &'a TestDataStore<T>,
+pub struct TestTransaction {
+    inner: Arc<TestDataInner>,
     completed: Cell<bool>,
 }
 
-impl<T: DataRow<TestVal> + Clone> Drop for TestTransaction<'_, T> {
+impl Drop for TestTransaction {
     fn drop(&mut self) {
         if !self.completed.get() {
-            self.store
+            self.inner
                 .operations
                 .lock()
                 .unwrap()
@@ -213,34 +206,36 @@ impl<T: DataRow<TestVal> + Clone> Drop for TestTransaction<'_, T> {
     }
 }
 
-impl<T: DataRow<TestVal> + Clone> DataStoreTransaction<TestVal, T> for TestTransaction<'_, T> {
+impl DataStoreTransaction for TestTransaction {
+    type Row = TestRow;
+
     async fn execute_query(
         &mut self,
         query: impl Into<Cow<'static, str>> + Send,
-    ) -> Result<Vec<T>, TransactionError> {
-        self.store
+    ) -> Result<Vec<Self::Row>, TransactionError> {
+        self.inner
             .operations
             .lock()
             .unwrap()
             .push(Operation::Query(query.into()));
-        Ok(self.store.data.clone())
+        Ok(self.inner.data.clone())
     }
 
     async fn execute_parameterized_query(
         &mut self,
         parameterized_query: ParameterizedQuery,
-    ) -> Result<Vec<T>, TransactionError> {
-        self.store
+    ) -> Result<Vec<Self::Row>, TransactionError> {
+        self.inner
             .operations
             .lock()
             .unwrap()
             .push(Operation::ParameterizedQuery(parameterized_query));
-        Ok(self.store.data.clone())
+        Ok(self.inner.data.clone())
     }
 
     async fn commit(self) -> Result<(), TransactionError> {
         self.completed.set(true);
-        self.store
+        self.inner
             .operations
             .lock()
             .unwrap()
@@ -250,7 +245,7 @@ impl<T: DataRow<TestVal> + Clone> DataStoreTransaction<TestVal, T> for TestTrans
 
     async fn rollback(self) -> Result<(), TransactionError> {
         self.completed.set(true);
-        self.store
+        self.inner
             .operations
             .lock()
             .unwrap()
@@ -269,63 +264,80 @@ impl<T: DataRow<TestVal> + Clone> DataStoreTransaction<TestVal, T> for TestTrans
 /// Every query passed to this store is recorded and can be inspected via
 /// [`captured_operations`](Self::captured_operations), which is the correct way to assert on query
 /// structure (statement text, bindings, etc.).
-#[derive(Debug)]
-pub struct TestDataStore<T: DataRow<TestVal> + Clone> {
-    data: Vec<T>,
-    operations: Mutex<Vec<Operation>>,
+#[derive(Clone, Debug)]
+pub struct TestDataStore {
+    inner: Arc<TestDataInner>,
 }
-impl<T: DataRow<TestVal> + Clone> TestDataStore<T> {
+impl TestDataStore {
     /// Convenience method for generating an instance of [`TestDataStore`] with the provided data.
-    pub fn new(data: Vec<T>) -> Self {
+    pub fn new(data: Vec<TestRow>) -> Self {
         Self {
-            data,
-            operations: Mutex::new(Vec::new()),
+            inner: Arc::new(TestDataInner::new(data)),
         }
     }
 
     /// Returns the operations captured so far, in the order they were submitted.
-    /// This is the intended way to assert that calling code constructed the correct query;
-    /// [`data`](Self::data) is unconditional and will not reflect query content.
+    /// Use this to assert that calling code constructed the correct query.
     pub fn captured_operations(&self) -> Vec<Operation> {
-        self.operations.lock().unwrap().clone()
+        self.inner.operations.lock().unwrap().clone()
     }
 }
-impl<T: DataRow<TestVal> + Clone> DataStore<TestVal, T> for TestDataStore<T> {
-    type Transaction<'a> = TestTransaction<'a, T>;
+impl DataStore for TestDataStore {
+    type Row = TestRow;
+    type Transaction = TestTransaction;
+
     async fn execute_query(
         &self,
         query: impl Into<Cow<'static, str>> + Send,
-    ) -> Result<Vec<T>, DataStoreError> {
-        self.operations
+    ) -> Result<Vec<Self::Row>, DataStoreError> {
+        self.inner
+            .operations
             .lock()
             .unwrap()
             .push(Operation::Query(query.into()));
-        Ok(self.data.clone())
+        Ok(self.inner.data.clone())
     }
 
     async fn execute_parameterized_query(
         &self,
         parameterized_query: ParameterizedQuery,
-    ) -> Result<Vec<T>, DataStoreError> {
-        self.operations
+    ) -> Result<Vec<Self::Row>, DataStoreError> {
+        self.inner
+            .operations
             .lock()
             .unwrap()
             .push(Operation::ParameterizedQuery(parameterized_query));
-        Ok(self.data.clone())
+        Ok(self.inner.data.clone())
     }
 
-    async fn begin_transaction(&self) -> Result<Self::Transaction<'_>, TransactionError> {
-        self.operations
+    async fn begin_transaction(&self) -> Result<Self::Transaction, TransactionError> {
+        self.inner
+            .operations
             .lock()
             .unwrap()
             .push(Operation::TransactionBegin);
         Ok(TestTransaction {
-            store: self,
+            inner: self.inner.clone(),
             completed: Cell::new(false),
         })
     }
 }
-impl<T: DataRow<TestVal> + Clone> Clone for TestDataStore<T> {
+
+#[derive(Debug)]
+struct TestDataInner {
+    data: Vec<TestRow>,
+    operations: Mutex<Vec<Operation>>,
+}
+impl TestDataInner {
+    /// Convenience method for generating an instance of [`TestDataInner`] with the provided data.
+    fn new(data: Vec<TestRow>) -> Self {
+        Self {
+            data,
+            operations: Mutex::new(Vec::new()),
+        }
+    }
+}
+impl Clone for TestDataInner {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
