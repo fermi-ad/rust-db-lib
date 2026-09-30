@@ -1,3 +1,7 @@
+// Turn off dependency checking during test builds, that way the local
+// integration test target does not get flagged as unused.
+#![cfg_attr(test, allow(unused_crate_dependencies))]
+
 //! Shared database abstractions with a PostgreSQL backend and optional testing utilities.
 //!
 //! [`DataStore`] executes queries and opens transactions; [`DataRow`] and [`DataVal`] decode

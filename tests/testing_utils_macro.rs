@@ -1,3 +1,8 @@
+// The unused dependency checker will flag chrono and sqlx as unused for this
+// integration test crate. Unused dependencies in tests are not a big concern,
+// as we will still use them in the main binary.
+#![allow(unused_crate_dependencies)]
+
 use rust_db_lib::{DataRow, DataStore, DataVal, testing_utils::test_data_store};
 
 #[tokio::test]
