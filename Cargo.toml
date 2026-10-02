@@ -1,6 +1,6 @@
 [package]
 name = "rust-db-lib"
-version = "9.0.0"
+version = "9.1.0"
 edition = "2024"
 
 [features]
@@ -12,6 +12,7 @@ chrono = "0.4"
 sqlx = { version = "0.9", features = [ "chrono", "postgres", "runtime-tokio", "tls-rustls-aws-lc-rs" ] }
 
 [dev-dependencies]
+rust-db-lib = { path = ".", features = ["testing-utils"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [workspace.lints.rust]
