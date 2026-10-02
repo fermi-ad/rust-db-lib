@@ -7,6 +7,7 @@
 - Added `testing_utils::test_data_store!` for constructing `TestDataStore` fixtures from rows of named columns. Values can be mixed across types and rows; an explicit `None` represents a null column, while an omitted column produces an error when read.
 - Added `From` conversions for `TestVal` from booleans, signed integers (`i8` through `i64`), floating-point values (`f32` and `f64`), `String`, `&str`, and `chrono::DateTime` in any time zone (normalized to UTC).
 - Added unit and consumer-style integration tests for the fixture macro and value conversions. The crate now enables `testing-utils` through a self dev-dependency when running `cargo test`; the feature remains opt-in for consumers.
+- Added chainable test-store configuration for store and transaction query, begin, commit, and rollback errors, including retryable errors; failed operations are captured. `DataStoreError::new` and string conversions make error fixtures easy to construct in consuming crates.
 
 ### Documentation
 

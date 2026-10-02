@@ -16,7 +16,7 @@ pub use test_val::TestVal;
 
 use std::{borrow::Cow, sync::Mutex};
 
-use crate::ParameterizedQuery;
+use crate::{DataStoreError, ParameterizedQuery, TransactionError};
 
 mod store_constructor_macro;
 mod test_data_store;
@@ -42,17 +42,27 @@ pub enum Operation {
     TransactionRollback,
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct TestErrors {
+    pub(crate) query: Option<DataStoreError>,
+    pub(crate) transaction_query: Option<TransactionError>,
+    pub(crate) begin: Option<TransactionError>,
+    pub(crate) commit: Option<TransactionError>,
+    pub(crate) rollback: Option<TransactionError>,
+}
+
 #[derive(Debug)]
 pub(crate) struct TestDataInner {
     pub(crate) data: Vec<TestRow>,
     pub(crate) operations: Mutex<Vec<Operation>>,
+    pub(crate) errors: TestErrors,
 }
 impl TestDataInner {
-    /// Convenience method for generating an instance of [`TestDataInner`] with the provided data.
     pub(crate) fn new(data: Vec<TestRow>) -> Self {
         Self {
             data,
             operations: Mutex::new(Vec::new()),
+            errors: TestErrors::default(),
         }
     }
 }
@@ -61,6 +71,7 @@ impl Clone for TestDataInner {
         Self {
             data: self.data.clone(),
             operations: Mutex::new(self.operations.lock().unwrap().clone()),
+            errors: self.errors.clone(),
         }
     }
 }

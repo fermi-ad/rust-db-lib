@@ -25,6 +25,37 @@ impl TestDataStore {
         }
     }
 
+    /// Makes both kinds of store query return this error instead of rows.
+    /// Configure the store before cloning or executing it.
+    pub fn with_query_error(mut self, error: impl Into<DataStoreError>) -> Self {
+        Arc::make_mut(&mut self.inner).errors.query = Some(error.into());
+        self
+    }
+
+    /// Makes both kinds of queries within a transaction return this error.
+    pub fn with_transaction_query_error(mut self, error: impl Into<TransactionError>) -> Self {
+        Arc::make_mut(&mut self.inner).errors.transaction_query = Some(error.into());
+        self
+    }
+
+    /// Makes opening a transaction fail with this error.
+    pub fn with_begin_error(mut self, error: impl Into<TransactionError>) -> Self {
+        Arc::make_mut(&mut self.inner).errors.begin = Some(error.into());
+        self
+    }
+
+    /// Makes committing a transaction fail with this error.
+    pub fn with_commit_error(mut self, error: impl Into<TransactionError>) -> Self {
+        Arc::make_mut(&mut self.inner).errors.commit = Some(error.into());
+        self
+    }
+
+    /// Makes rolling back a transaction fail with this error.
+    pub fn with_rollback_error(mut self, error: impl Into<TransactionError>) -> Self {
+        Arc::make_mut(&mut self.inner).errors.rollback = Some(error.into());
+        self
+    }
+
     /// Returns the operations captured so far, in the order they were submitted.
     /// Use this to assert that calling code constructed the correct query.
     pub fn captured_operations(&self) -> Vec<Operation> {
@@ -44,6 +75,9 @@ impl DataStore for TestDataStore {
             .lock()
             .unwrap()
             .push(Operation::Query(query.into()));
+        if let Some(error) = &self.inner.errors.query {
+            return Err(error.clone());
+        }
         Ok(self.inner.data.clone())
     }
 
@@ -56,6 +90,9 @@ impl DataStore for TestDataStore {
             .lock()
             .unwrap()
             .push(Operation::ParameterizedQuery(parameterized_query));
+        if let Some(error) = &self.inner.errors.query {
+            return Err(error.clone());
+        }
         Ok(self.inner.data.clone())
     }
 
@@ -65,6 +102,9 @@ impl DataStore for TestDataStore {
             .lock()
             .unwrap()
             .push(Operation::TransactionBegin);
+        if let Some(error) = &self.inner.errors.begin {
+            return Err(error.clone());
+        }
         Ok(TestTransaction {
             inner: self.inner.clone(),
             completed: Cell::new(false),

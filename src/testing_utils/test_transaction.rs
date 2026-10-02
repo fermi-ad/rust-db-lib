@@ -39,6 +39,9 @@ impl DataStoreTransaction for TestTransaction {
             .lock()
             .unwrap()
             .push(Operation::Query(query.into()));
+        if let Some(error) = &self.inner.errors.transaction_query {
+            return Err(error.clone());
+        }
         Ok(self.inner.data.clone())
     }
 
@@ -51,6 +54,9 @@ impl DataStoreTransaction for TestTransaction {
             .lock()
             .unwrap()
             .push(Operation::ParameterizedQuery(parameterized_query));
+        if let Some(error) = &self.inner.errors.transaction_query {
+            return Err(error.clone());
+        }
         Ok(self.inner.data.clone())
     }
 
@@ -61,7 +67,10 @@ impl DataStoreTransaction for TestTransaction {
             .lock()
             .unwrap()
             .push(Operation::TransactionCommit);
-        Ok(())
+        match &self.inner.errors.commit {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
     }
 
     async fn rollback(self) -> Result<(), TransactionError> {
@@ -71,6 +80,9 @@ impl DataStoreTransaction for TestTransaction {
             .lock()
             .unwrap()
             .push(Operation::TransactionRollback);
-        Ok(())
+        match &self.inner.errors.rollback {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
     }
 }

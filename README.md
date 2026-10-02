@@ -64,4 +64,20 @@ Each bracketed list becomes a separate row. Supported values are `bool`, `i8`, `
 
 `TestDataStore` returns the same configured rows for **every** query, including queries within transactions; it does not execute SQL or filter results. Check `captured_operations()` to assert on query text, bindings, transaction boundaries, and rollbacks instead of inferring query correctness from returned rows. You can also construct rows directly using `TestRow::new` and `TestVal` for fixtures that need manual configuration.
 
+To exercise error-handling code, chain `with_query_error`, `with_transaction_query_error`, `with_begin_error`, `with_commit_error`, or `with_rollback_error` onto the fixture before handing it to the code under test. Both query methods at each level use the configured error. Store query errors accept a message (`&str` or `String`) or `DataStoreError`; transaction errors accept `TransactionError`, including `TransactionError::Retryable`, or `DataStoreError` (wrapped as a database error). For example:
+
+```rust
+use rust_db_lib::{DataStore, TransactionError, testing_utils::test_data_store};
+
+# async fn example() {
+let store = test_data_store!([]).with_query_error("connection lost");
+assert!(store.execute_query("SELECT 1").await.is_err());
+
+let store = test_data_store!([]).with_begin_error(TransactionError::Retryable);
+assert!(matches!(store.begin_transaction().await, Err(TransactionError::Retryable)));
+# }
+```
+
+Failed operations are still captured. An unsuccessful begin records a begin event without a rollback; an unsuccessful commit or rollback records that attempt once. Configure errors before cloning the store; a configured clone has independent error settings and operation history from the original.
+
 This repository uses a self dev-dependency to run the feature-enabled integration tests with plain `cargo test`; `testing-utils` is **not** a default feature for downstream users.
